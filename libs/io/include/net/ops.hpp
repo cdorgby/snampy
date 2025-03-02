@@ -1,8 +1,8 @@
 #pragma once
 
 #include <io/common.hpp>
-#include <io/ioops.hpp>
-#include <io/sockaddr.hpp>
+#include <net/ops.hpp>
+#include <net/sockaddr.hpp>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
