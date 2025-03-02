@@ -57,7 +57,6 @@ class io_loop_basic
      */
     [[nodiscard]] bool schedule(std::coroutine_handle<> &coro);
     [[nodiscard]] bool schedule(io_task &&task, std::string id);
-    [[nodiscard]] int step();
 
     /**
      * @brief Return the time when the next timeout should occur.
@@ -84,6 +83,7 @@ class io_loop_basic
     }
 
   private:
+    [[nodiscard]] int step();
     bool process_ready_waiters(std::vector<io_waiter *> &ready_waiters);
 
   private:
