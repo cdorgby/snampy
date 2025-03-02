@@ -2,6 +2,9 @@
 #include <common/catch.hpp>
 
 #include <io/io.hpp>
+#include <net/sockaddr.hpp>
+#include <net/ops.hpp>
+
 #include <array>
 #include <string>
 
