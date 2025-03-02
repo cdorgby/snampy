@@ -1,0 +1,183 @@
+#!/usr/bin/make -rRf
+# TUBS boostrap wrapper
+# This Makefile pretends to be a shell script
+# Invoke it to run the actual build
+
+JOBS ?= 1
+MAKEFLAGS += -rR --no-print-directory
+
+
+SILENT := $(if $(findstring s,$(MAKEFLAGS)),-s)
+Q := $(if $(findstring s,$(MAKEFLAGS)),@)
+
+ROOT            := $(CURDIR)
+ARCHIVE_DIR     := $(ROOT)/archives
+TUBS_ROOT        := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))/tubs
+TUBS_CONFIG_DIR  := $(ROOT)/config
+TUBS_CONFIG_FILE := $(TUBS_CONFIG_DIR)/$(BUILD_BOARD).mk
+
+TUBS_HOST_TOOLS  := $(TUBS_ROOT)/host_tools
+HOST_TOOLS      := $(ROOT)/host_tools
+HOST_TOOLS_BIN  := $(HOST_TOOLS)/bin
+
+REQ_MAKE_VERSION   := 4.3
+MAKE_DIR        := $(HOST_TOOLS)/make-$(REQ_MAKE_VERSION)
+
+OUTPUT_DIR      := $(ROOT)/output.$(BUILD_BOARD)
+
+special_targets := help configs mrproper tubs-
+
+specials := $(filter $(special_targets),$(MAKECMDGOALS))
+.DEFAULT_GOAL := help
+
+ifneq ($(SILENT),)
+_run_tubs_silent = $(MAKE) MAKEFLAGS="-srR --no-print-directory" _submake_opts="$(_submake_opts)" -f $(TUBS_ROOT)/core.mk TARGET=$(BUILD_BOARD) skip_includes_resolve=y skip_libraries_resolve=y skip_system_checks=y
+_run_tubs_silent_end = 2>/dev/null
+else
+_run_tubs_silent = $(MAKE) MAKEFLAGS="-srR --no-print-directory" _submake_opts="$(_submake_opts)" -f $(TUBS_ROOT)/core.mk TARGET=$(BUILD_BOARD) skip_includes_resolve=y skip_libraries_resolve=y skip_system_checks=y
+_run_tubs_silent_end =
+endif
+
+# special dummy target that can be used by % and other uknown things
+force: ;
+
+build: ;
+$(ROOT)/build: ;
+
+ifeq ($(specials),)
+
+ifneq ($(MAKE_VERSION),$(REQ_MAKE_VERSION))
+#ifneq ($(_running_in_tubs),tubs)
+MAKE=$(HOST_TOOLS_BIN)/make
+$(MAKECMDGOALS): $(HOST_TOOLS_BIN)/make force
+	@test -n "$(SILENT)" || echo " -> Restarting with self-built make"
+	$(Q)$(MAKE) $(SILENT) _running_in_tubs=tubs _submake_opts=$(_submake_opts) -j$(JOBS) -f $(ROOT)/$(lastword $(MAKEFILE_LIST)) $@
+
+$(HOST_TOOLS_BIN)/make: $(MAKE_DIR)/make
+	@cd $(MAKE_DIR); \
+	make install 2>/dev/null 1>/dev/null
+
+$(MAKE_DIR)/make: $(MAKE_DIR)/Makefile
+	@cd $(MAKE_DIR); \
+	make 2>/dev/null 1>/dev/null
+
+$(MAKE_DIR)/Makefile: $(MAKE_DIR)/configure
+	@cd $(MAKE_DIR); \
+	./configure --prefix=$(HOST_TOOLS) 2>/dev/null 1>/dev/null
+
+$(MAKE_DIR)/configure: $(MAKE_DIR)
+
+$(MAKE_DIR): $(TUBS_HOST_TOOLS)/make-$(REQ_MAKE_VERSION).tar.gz
+	@echo "Building my own make..."
+	@mkdir -p $(HOST_TOOLS)
+	@tar xf $< -C $(HOST_TOOLS)
+	@touch $@
+else # $(MAKE_VERSION)
+
+ifeq ($(BUILD_BOARD),)
+$(error BUILD_BOARD not defined)
+else
+ifeq ($(wildcard $(TUBS_CONFIG_FILE)),)
+.DEFAULT_GOAL = err
+# the double colon is important here
+err::
+	@echo "BUILD_BOARD is defined to $(BUILD_BOARD), the config file could not be found under $(TUBS_CONFIG_DIR)"
+else # TUBS_CONFIG_FILE
+
+_extra_tubs_targets := $(shell $(_run_tubs_silent) tubs-var-_TUBS_ALLOWED_TOP_TARGETS $(_run_tubs_silent_end))
+_extra_tubs_subdir_targets := $(shell $(_run_tubs_silent) tubs-var-_TUBS_ALLOWED_SUBDIR_TARGETS $(_run_tubs_silent_end))
+
+$(ARCHIVE_DIR):
+	@mkdir $(ARCHIVE_DIR)
+
+.PHONY: $$(_extra_tubs_targets)
+# These targets are meant to be invoked within a subdirectory.
+# Force all/ as prefix when targets are invoked on their own
+$(_extra_tubs_subdir_targets):
+	+$(MAKE) $(_submake_opts) -f $(TUBS_ROOT)/core.mk all/$@ TARGET=$(BUILD_BOARD) TUBS_ARCHIVE_DIR=$(ARCHIVE_DIR) -j$(JOBS)
+
+# handle the subdir versions of the above
+$(foreach _t,$(_extra_tubs_subdir_targets),%/$(_t)):
+	+$(MAKE) $(_submake_opts) -f $(TUBS_ROOT)/core.mk $@ TARGET=$(BUILD_BOARD) TUBS_ARCHIVE_DIR=$(ARCHIVE_DIR) -j$(JOBS)
+
+# These targets can be executed without a subdir.
+$(filter-out help $(_extra_tubs_subdir_targets),$(_extra_tubs_targets)):
+	+$(MAKE) $(_submake_opts) -f $(TUBS_ROOT)/core.mk $@ TARGET=$(BUILD_BOARD) TUBS_ARCHIVE_DIR=$(ARCHIVE_DIR) -j$(JOBS)
+
+env:
+	env PATH="`pwd`/host_tools/bin:$$PATH" \
+        TUBS_CONFIG_FILE=$(TUBS_CONFIG_FILE) \
+        $$SHELL --init-file $(TUBS_ROOT)/shell_make_alias --noprofile -i; \
+        true 
+
+tubs-%: force
+	$(_run_tubs_silent) $@ $(_run_tubs_silent_end)
+
+#$(MAKE) $(_submake_opts) -f $(TUBS_ROOT)/core.mk $@ TARGET=$(BUILD_BOARD) TUBS_ARCHIVE_DIR=$(ARCHIVE_DIR)
+
+endif # $(TUBS_CONFIG_FILE)
+endif # $(BUILD_BOARD)
+
+endif # $(specials)
+endif # $(MAKE_VERSION)
+
+.PHONY: help
+help:
+	@echo "Help"
+	@echo "============================================================================"
+ifneq ($(TUBS_CONFIG_FILE),)
+	@echo " env                - Launch a shell with the environment setup for running"
+	@echo "                      a build with current BUILD_BOARD settings."
+	@echo "                      In this shell 'make' is available to use directly from"
+	@echo "                      any sub-directory in the build system, without having"
+	@echo "                      to specify the BUILD_BOARD variable or full paths."
+	@echo "                      Run 'tubs_help' while in the TUBS shell to get a short help."
+endif
+	@echo 
+ifneq ($(BUILD_BOARD),) 
+	-@$(_run_tubs_silent) help $(_run_tubs_silent_end)
+	@echo
+endif
+	@echo " help               - Show this help"
+	@echo 
+	@echo "Misc Targets"
+	@echo "============================================================================"
+	@echo " mrproper           - Remove all directories containing generated output."
+	@echo " configs            - List available configurations"
+	@echo " targets            - Shows all possible targets"
+	@echo 
+	@echo "============================================================================"
+	@echo "Shell environment variable can affect the way TUBS works. These variables "
+	@echo "should be set at the front of the command line or exported into the environment."
+	@echo "  'BUILD_BOARD=qemu_x86 ./build all'"
+	@echo
+	@echo " BUILD_BOARD        - The configuration file to use for build definition"
+	@echo " BOARD_IP           - IP of the target system."
+	@echo " JOBS               - Maximum number of parallel to run at once, default is 1"
+	@echo " Q                  - Quite flag, set it to empty value to enable verbose"
+	@echo "                      output from the build system."
+	@echo "                      'Q= ./build all' or 'Q= make' within TUBS shell."
+	@echo "============================================================================"
+ifeq ($(BUILD_BOARD),) 
+	@echo "BUILD_BOARD is not set"
+	@echo "Once BUILD_BOARD is set, more help will become available"
+else
+	@echo "BUILD_BOARD         = $(BUILD_BOARD)"
+	@echo "TUBS_CONFIG_FILE    = $(TUBS_CONFIG_FILE)"
+	-@echo "LOG_FILE            = `$(_run_tubs_silent) tubs-var-log_file $(_run_tubs_silent_end)`"
+endif
+	@echo 
+
+.PHONY: configs 
+configs:
+	@echo $(patsubst %.mk,%,$(subst $(TUBS_CONFIG_DIR)/,,$(wildcard $(TUBS_CONFIG_DIR)/*.mk)))
+	
+.PHONY: mrproper
+mrproper:
+	@echo " -> removing $(HOST_TOOLS)"
+	-rm -fr $(HOST_TOOLS)
+ifneq ($(BUILD_BOARD),)
+	@echo " -> removing $(OUTPUT_DIR)"
+	-rm -fr $(OUTPUT_DIR)
+endif
+

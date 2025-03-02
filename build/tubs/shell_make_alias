@@ -1,0 +1,245 @@
+
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+_build_root=`pwd`
+PS1="$BUILD_BOARD (run 'tubs_help') $PS1"
+
+_run_build="/usr/bin/make -C $_build_root -f build/build"
+_run_build_s="/usr/bin/make --silent -C $_build_root -f build/build "
+_run_build_fast="/usr/bin/env skip_dupe_check=y skip_includes_resolve=y skip_libraries_resolve=y skip_system_check=y ${_run_build_s}"
+
+function make
+{
+    # reset optind in case something else messed with our options first
+    OPTIND=1
+    _rest=()
+    _pos=()
+    _path=
+    _submake_opts=
+    _jobs="JOBS=`nproc` "
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -j*)
+                _jobs="JOBS=${1#-j} "
+                shift
+            ;;
+            -C)
+                shift
+                _path="${1} "
+                shift
+            ;;
+            -C*)
+                _path="${1#-C} "
+                shift
+            ;;
+            -d|-p)
+                _submake_opts="${_submake_opts} ${1}"
+                shift
+            ;;
+            -*)
+                _rest+=("$1")
+                shift
+            ;;
+            *)
+                _pos+=("$1")
+                shift
+            ;;
+        esac
+    done
+    
+    _path=`realpath -L \`pwd\`/$_path`
+
+    _path=${_path##$_build_root/}
+    
+    if [ "$_path" == "$_build_root" ]; then
+        _path=""
+    else
+        _path="$_path/"
+    fi
+    
+    _target=all
+    if [ -n "$_pos" ]; then
+        _target="$_pos"
+    fi
+
+    _subdir_targets="\(`$_run_build_fast tubs-var-_TUBS_ALLOWED_SUBDIR_TARGETS | sed 's/ / \\\\|/g'` \)"
+    _targets=`$_run_build_fast tubs-var-_TUBS_ALLOWED_TOP_TARGETS`
+    if [ $? -eq 0 ]; then
+        _tt=`echo $_targets | sed "s/$_subdir_targets//g" | sed 's/ /\|/g'`
+
+        echo "$_tt" | grep "$_target"
+
+        if [ $? -eq 0 ]; then
+            _path=
+        fi
+    fi
+
+    $_run_build _submake_opts="${_submake_opts}" ${_rest} ${_jobs}"${_path}${_target}"
+}
+
+_run_valgrind="`which valgrind` --leak-check=full --show-leak-kinds=all --num-callers=50"
+
+
+function print_src_dir
+{
+    _path=`pwd`
+    _path=${_path##$_build_root/}
+    if [ "$_path" == "$_build_root" ]; then
+        _path=""
+    else
+        _path="$_path/"
+    fi
+    
+    _target=`$_run_build_fast "${_path}as_target"`
+    
+    if [ -n "$_target" ]; then
+        _path=`$_run_build_fast "tubs-target-to-src-${_target}"`
+        echo $_path
+        return 0
+    fi
+    return 1
+}
+
+function val
+{
+    # reset optind in case something else messed with our options first
+    OPTIND=1
+    _rest=()
+    _pos=()
+    _gen=
+    _sup=
+    _exec=
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -g)
+                _gen="--gen-suppressions=all"
+                shift
+            ;;
+            -*)
+                _rest+=("$1")
+                shift
+            ;;
+            *)
+                _pos+=("$1")
+                shift
+            ;;
+        esac
+    done
+
+    _path=`print_src_dir`
+    if [ $? == 1 ]; then
+        echo "Current directory is not recognized by the build system."
+        echo "Should be in the directory containing the Makefile for the application, or the directory containing the built binary"
+        return 1
+    fi
+
+    if [ -n "$_pos" ]; then
+        _exec="$_pos"
+        _sup_file="$_path/`basename ${_exec}`.suppressions"
+
+        if [ -f $_sup_file ]; then
+            _sup="--suppressions=$_sup_file"
+        fi
+    else
+        echo "Need an executable to run"
+        return 1
+    fi
+
+    $_run_valgrind $_gen $_sup $_rest $_exec
+}
+
+function src
+{
+    _path=`pwd`
+    _path=${_path##$_build_root/}
+    if [ "$_path" == "$_build_root" ]; then
+        _path=""
+    else
+        _path="$_path/"
+    fi
+    
+    _target=`$_run_build_fast "${_path}as_target"`
+    
+    if [ -n "$_target" ]; then
+        _path=`$_run_build_fast "tubs-target-to-src-${_target}"`
+        cd $_path
+    else
+        echo "Current directory is not recognized by the build system."
+    fi
+}
+
+function obj
+{
+    _path=`pwd`
+    _path=${_path##$_build_root/}
+    if [ "$_path" == "$_build_root" ]; then
+        _path=""
+    else
+        _path="$_path/"
+    fi
+    
+    _target=`$_run_build_fast "${_path}as_target"`
+    
+    if [ -n "$_target" ]; then
+        _path=`$_run_build_fast "tubs-target-to-output-${_target}"`
+        cd $_path
+    else
+        echo "Current directory is not recognized by the build system."
+    fi
+}
+
+function root
+{
+    _path=`$_run_build_fast "tubs-target-to-src-all"`
+    cd $_path
+}
+
+function tssh
+{
+    _key=`$_run_build_fast "tubs-var-TUBS_BOARD_SSH_KEY"`
+    `which ssh` -i $_key $*
+}
+
+function tscp
+{
+    _key=`$_run_build_fast "tubs-var-TUBS_BOARD_SSH_KEY"`
+    `which scp ` -i $_key $*
+}
+
+function tubs_help
+{
+    cat <<EOF
+You are currently in a shell with enviroment setup for TUBS
+in '${_build_root}' that is configured for '${BUILD_BOARD}'
+
+TUBS Shell Commands
+=========================================================
+make    - Execute build from current directory. This is a simple
+          wrapper and to help launching make from the command line.
+          try 'make help' for build specific help.
+          Support passing '-' prefix options down to the real make
+          The following options are handling specially by the wrapper:
+          -j    - Specify number of jobs
+          -C    - Passed path will be changed into by the wrapper, not by make
+          -p,-d - Passed to the correct instance of make to generate the debug/db outputs
+
+src     - Switch to source directory for current output directory.
+obj     - Switch to output directory for the current source directory.
+root    - Switch to the root of build tree
+
+tssh    - Run ssh providing the private key defined in TUBS_BOARD_SSH_KEY
+tscp    - Run scp providing the private key defined in TUBS_BOARD_SSH_KEY
+          TUBS_BOARD_SSH_KEY: `$_run_build_fast "tubs-var-TUBS_BOARD_SSH_KEY"`
+
+val     - Run executable under valgrind. Change into the object directory for the
+          the program that you want to run under valgrind. And run 'val ./name_of_exec'
+          You can pass -g option anywhere on the command line to generate a
+          suppressions list.
+
+help    - Show this help
+exit    - Return to normal shell
+
+Run 'make help' to see build system's help.
+
+EOF
+}

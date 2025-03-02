@@ -1,0 +1,5 @@
+Checks: '*,-*security.insecureAPI.*,-clang-analyzer-alpha.*,-llvm-include-order,-llvm-header-guard,-bugprone-reserved-identifier,-llvmlibc*,-readability*,
+-bugprone-macro-parentheses,-altera*,-hicpp*,-cppcoreguidelines*,-google-readability*,-misc-unused-parameters,-concurrency-*,-cert-dcl37-c,-cert-dcl51-cpp,
+-bugprone-narrowing-conversions,-bugprone-easily-swappable-parameters,-readability-else-after-return,-misc-no-recursion,-llvm-else-after-return'
+FormatStyle: 'file'
+
