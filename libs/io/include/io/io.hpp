@@ -6,7 +6,7 @@
 #include <io/iotask.hpp>
 #include <io/iobuf.hpp>
 #include <io/ioops.hpp>
-#include <io/ioops_net.hpp>
+#include <io/mbox.hpp>
 
 #include <io/impl/iobuf.hpp>
 #include <io/impl/iobuf_pack.hpp>

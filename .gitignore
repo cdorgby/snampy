@@ -1,1 +1,7 @@
 output.*
+snampy.code-workspace
+make-host_x64.log
+.vscode/launch.json
+.vscode/c_cpp_properties.json
+.vscode/tasks.json
+.vscode/compile_commands.json

@@ -1,6 +1,6 @@
 #include <io/iotask.hpp>
 #include <common/catch.hpp>
-#include <io/sockaddr.hpp>
+#include <net/sockaddr.hpp>
 #include <sys/un.h>
 
 using namespace io;

@@ -591,4 +591,11 @@ struct io_wait_for_all_promise : public io_promise
 };
 
 } // namespace detail
+
+auto yield(io_loop &loop) { return detail::io_promise{loop, time_now()}; }
+auto sleep(io_loop &loop, std::chrono::milliseconds duration)
+{
+    return detail::io_promise{loop, time_now() + duration};
+}
+
 } // namespace io

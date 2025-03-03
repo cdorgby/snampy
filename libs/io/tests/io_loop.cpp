@@ -713,3 +713,109 @@ TEST_CASE("Error propagation in wait_for_any", "[error_handling]") {
 
     REQUIRE(test_completed);
 }
+
+TEST_CASE("io_loop_basic yield test", "[io_loop]") {
+    io_loop_basic<epoll_poller> loop;
+    loop.init();
+
+    bool task_executed = false;
+
+    auto task = [&]() -> io_task {
+        co_await io::yield(loop);
+        task_executed = true;
+        co_return;
+    };
+
+    loop.schedule(task(), "yield_test");
+    loop.run();
+
+    REQUIRE(task_executed);
+}
+
+TEST_CASE("io_loop_basic sleep test", "[io_loop]") {
+    io_loop_basic<epoll_poller> loop;
+    loop.init();
+
+    auto start_time = std::chrono::steady_clock::now();
+    std::chrono::milliseconds sleep_duration(50);
+    bool task_executed = false;
+    std::chrono::milliseconds variance(2);
+
+    auto task = [&]() -> io_task {
+        co_await io::sleep(loop, sleep_duration);
+        auto end_time = std::chrono::steady_clock::now();
+        auto actual_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        REQUIRE(actual_duration >= sleep_duration - variance);
+        task_executed = true;
+        co_return;
+    };
+
+    loop.schedule(task(), "sleep_test");
+    loop.run();
+
+    REQUIRE(task_executed);
+}
+
+TEST_CASE("io_loop_basic nested yield test", "[io_loop]") {
+    io_loop_basic<epoll_poller> loop;
+    loop.init();
+
+    bool outer_task_executed = false;
+    bool inner_task_executed = false;
+
+    auto inner_task = [&]() -> io_task {
+        co_await io::yield(loop);
+        inner_task_executed = true;
+        co_return;
+    };
+
+    auto outer_task = [&]() -> io_task {
+        co_await inner_task();
+        outer_task_executed = true;
+        co_return;
+    };
+
+    loop.schedule(outer_task(), "nested_yield_test");
+    loop.run();
+
+    REQUIRE(outer_task_executed);
+    REQUIRE(inner_task_executed);
+}
+
+TEST_CASE("io_loop_basic nested sleep test", "[io_loop]") {
+    io_loop_basic<epoll_poller> loop;
+    loop.init();
+
+    std::chrono::milliseconds sleep_duration1(20);
+    std::chrono::milliseconds sleep_duration2(30);
+    bool outer_task_executed = false;
+    bool inner_task_executed = false;
+    std::chrono::milliseconds variance(2);
+
+    auto inner_task = [&]() -> io_task {
+        auto start_time = std::chrono::steady_clock::now();
+        co_await io::sleep(loop, sleep_duration1);
+        auto end_time = std::chrono::steady_clock::now();
+        auto actual_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        REQUIRE(actual_duration >= sleep_duration1 - variance);
+        inner_task_executed = true;
+        co_return;
+    };
+
+    auto outer_task = [&]() -> io_task {
+        auto start_time = std::chrono::steady_clock::now();
+        co_await inner_task();
+        co_await io::sleep(loop, sleep_duration2);
+        auto end_time = std::chrono::steady_clock::now();
+        auto actual_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        REQUIRE(actual_duration >= sleep_duration1 + sleep_duration2 - variance);
+        outer_task_executed = true;
+        co_return;
+    };
+
+    loop.schedule(outer_task(), "nested_sleep_test");
+    loop.run();
+
+    REQUIRE(outer_task_executed);
+    REQUIRE(inner_task_executed);
+}
