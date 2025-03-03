@@ -4,6 +4,10 @@
 #include <queue>
 #include <optional>
 #include <limits>
+#include <concepts>
+#include <span>
+#include <ranges>
+#include <type_traits>
 
 namespace io
 {
@@ -26,16 +30,42 @@ namespace io
 
 /**
  * A simple mailbox that can have a single reader and multiple writers.
- * This implementation is designed for single-threaded environments where the io_loop
- * runs in a single thread.
- */
-
-
-/**
- * A mailbox for inter-task communication in a single-threaded environment.
- * Allows multiple writers but only one reader at a time.
- * 
+ *
  * @tparam T The type of messages to be sent through the mailbox
+ *
+ * @note This mailbox is not thread-safe and should only be used in single-threaded environments.
+ *
+ * ## Theory of Operation
+ *
+ * The mailbox operates using a producer-consumer pattern with these characteristics:
+ *
+ * 1. **Message Queue**: Messages are stored in a FIFO queue when no readers are waiting.
+ *    When a reader becomes available, the oldest message is delivered first.
+ *
+ * 2. **Reader Registration**: When a task calls `read()`, it becomes a "reader":
+ *    - If messages are already in the queue, the reader immediately receives the oldest message.
+ *    - If the queue is empty, the reader is registered in a waiting list and its coroutine is suspended.
+ *    - If multiple readers are waiting, they form a queue and receive messages in registration order.
+ *
+ * 3. **Message Delivery**: When a message is sent:
+ *    - If readers are waiting, the message is delivered directly to the longest-waiting reader,
+ *      which resumes its coroutine with the message as its result.
+ *    - If no readers are waiting, the message is queued for future readers.
+ *
+ * 4. **Timeout Handling**: Reads can specify a timeout. If no message arrives before
+ *    the timeout expires, the read operation returns `std::nullopt`.
+ *
+ * 5. **Bounded Queue**: The mailbox can optionally have a maximum size. When the queue
+ *    reaches this limit, the oldest messages are dropped to make room for new ones (FIFO behavior).
+ *
+ * 6. **Mailbox Closing**: When a mailbox is closed:
+ *    - All waiting readers are notified and receive `std::nullopt`.
+ *    - All queued messages are discarded.
+ *    - New messages are rejected.
+ *    - New read operations immediately return `std::nullopt`.
+ *
+ * 7. **Resource Management**: If a mailbox is destroyed while readers are still
+ *    registered, they are properly notified to prevent accessing the destroyed mailbox.
  */
 template <typename T>
 class io_mbox {
@@ -166,7 +196,8 @@ private:
         // Unregister from the mailbox if still registered
         void unregister() {
             if (is_registered_ && mbox_) {
-                auto it = std::find(mbox_->readers_.begin(), mbox_->readers_.end(), this);
+                // Use C++20 std::ranges to find and erase in one step
+                auto it = std::ranges::find(mbox_->readers_, this);
                 if (it != mbox_->readers_.end()) {
                     mbox_->readers_.erase(it);
                 }
@@ -203,11 +234,86 @@ public:
     
     /**
      * Send a message to the mailbox.
+     * This overload handles both lvalue and rvalue references using
+     * perfect forwarding to avoid ambiguity.
      * 
      * @param message The message to send
      * @return true if the message was accepted, false if the mailbox is closed
      */
-    bool send(T message) noexcept {
+    template <typename U>
+    requires std::convertible_to<U, T>
+    bool send(U&& message) noexcept {
+        // Don't accept messages if closed
+        if (is_closed_) {
+            return false;
+        }
+        
+        // If there are waiting readers, deliver to the first one
+        if (!readers_.empty()) {
+            // Get the first reader
+            mailbox_reader* reader = readers_.front();
+            readers_.erase(readers_.begin());
+            
+            // Deliver the message using perfect forwarding
+            reader->deliver_message(T(std::forward<U>(message)));
+            return true;
+        }
+        
+        // No waiting readers, queue the message
+        
+        // Check if we need to make room
+        if (max_queue_size_ > 0 && message_queue_.size() >= max_queue_size_) {
+            message_queue_.pop(); // Remove oldest message
+        }
+        
+        // Add the new message using perfect forwarding
+        message_queue_.push(T(std::forward<U>(message)));
+        return true;
+    }
+
+    /**
+     * Send a message to the mailbox.
+     * This overload handles lvalue references.
+     * 
+     * @param message The message to send
+     * @return true if the message was accepted, false if the mailbox is closed
+     */
+    bool send(const T& message) noexcept {
+        // Don't accept messages if closed
+        if (is_closed_) {
+            return false;
+        }
+        
+        // If there are waiting readers, deliver to the first one
+        if (!readers_.empty()) {
+            // Get the first reader
+            mailbox_reader* reader = readers_.front();
+            readers_.erase(readers_.begin());
+            
+            // Deliver the message (by making a copy)
+            reader->deliver_message(T(message));
+            return true;
+        }
+        
+        // No waiting readers, queue the message
+        
+        // Check if we need to make room
+        if (max_queue_size_ > 0 && message_queue_.size() >= max_queue_size_) {
+            message_queue_.pop(); // Remove oldest message
+        }
+        
+        // Add the new message
+        message_queue_.push(message);
+        return true;
+    }
+
+    /**
+     * Send a message to the mailbox (rvalue reference overload for better performance).
+     * 
+     * @param message The message to send
+     * @return true if the message was accepted, false if the mailbox is closed
+     */
+    bool send(T&& message) noexcept {
         // Don't accept messages if closed
         if (is_closed_) {
             return false;
@@ -233,6 +339,48 @@ public:
         
         // Add the new message
         message_queue_.push(std::move(message));
+        return true;
+    }
+    
+    /**
+     * Send a message to the mailbox, constructing it in-place from the arguments.
+     * This is useful for complex types that can be constructed from multiple arguments.
+     * 
+     * @param args Arguments to forward to the constructor of T
+     * @return true if the message was accepted, false if the mailbox is closed
+     */
+    template <typename... Args>
+    requires std::constructible_from<T, Args...>
+    bool emplace(Args&&... args) noexcept {
+        // Don't accept messages if closed
+        if (is_closed_) {
+            return false;
+        }
+        
+        if (!readers_.empty()) {
+            // Get the first reader
+            mailbox_reader* reader = readers_.front();
+            readers_.erase(readers_.begin());
+            
+            // Deliver a new message constructed from the arguments
+            reader->deliver_message(T(std::forward<Args>(args)...));
+            return true;
+        }
+        
+        // No waiting readers, queue the message
+        
+        // Check if we need to make room
+        if (max_queue_size_ > 0 && message_queue_.size() >= max_queue_size_) {
+            message_queue_.pop(); // Remove oldest message
+        }
+        
+        // Use emplace to avoid extra moves
+        if constexpr (requires { message_queue_.emplace(std::forward<Args>(args)...); }) {
+            message_queue_.emplace(std::forward<Args>(args)...);
+        } else {
+            // Fall back to constructing and pushing if emplace is not available
+            message_queue_.push(T(std::forward<Args>(args)...));
+        }
         return true;
     }
     
@@ -317,10 +465,10 @@ public:
 
 /**
  * A mailbox that can have multiple readers and writers, but only one reader will receive each message.
+ * Uses C++20 concepts to ensure message types are moveable.
  */
-template <typename T>
+template <std::movable T>
 class io_mbox_any {
-    // Implementation will go here
 };
 
 /**
@@ -329,7 +477,7 @@ class io_mbox_any {
  * 
  * @tparam T The type of messages to be sent through the mailbox
  */
-template <typename T>
+template <std::movable T>
 class io_mbox_all {
 };
 

@@ -198,8 +198,9 @@ TEST_CASE("io_mbox with different message types", "[io_mbox]") {
         
         io_mbox<Message> mbox(loop);
         
-        mbox.send({1, "First message"});
-        mbox.send({2, "Second message"});
+        // Use the new emplace method instead of send with braced initializers
+        mbox.emplace(1, "First message");
+        mbox.emplace(2, "Second message");
         
         int messages_read = 0;
         auto task = [&]() -> io_task {
@@ -908,11 +909,11 @@ TEST_CASE("io_mbox max queue size", "[io_mbox]") {
         // Verify that the oldest messages were dropped
         bool read_completed = false;
         auto reader = [&]() -> io_task {
-            for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
+            for (size_t i = 0; i < MAX_QUEUE_SIZE; i++) {
                 auto value_opt = co_await mbox.read();
                 REQUIRE(value_opt.has_value());
                 // Expected values are 5, 6, 7, 8, 9 (first 5 were dropped)
-                REQUIRE(value_opt.value() == i + 10 - MAX_QUEUE_SIZE);
+                REQUIRE(value_opt.value() == static_cast<int>(i + 10 - MAX_QUEUE_SIZE));
             }
             read_completed = true;
         };
@@ -929,8 +930,8 @@ TEST_CASE("io_mbox max queue size", "[io_mbox]") {
         io_mbox<int> mbox(loop, MAX_QUEUE_SIZE);
         
         // Fill the queue exactly to capacity
-        for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
-            mbox.send(i);
+        for (size_t i = 0; i < MAX_QUEUE_SIZE; i++) {
+            mbox.send(static_cast<int>(i));
         }
         
         REQUIRE(mbox.size() == MAX_QUEUE_SIZE);
@@ -945,10 +946,10 @@ TEST_CASE("io_mbox max queue size", "[io_mbox]") {
         auto reader = [&]() -> io_task {
             // First message (0) should have been dropped
             // Should receive 1, 2, 100
-            for (int i = 1; i < MAX_QUEUE_SIZE; i++) {
+            for (size_t i = 1; i < MAX_QUEUE_SIZE; i++) {
                 auto value_opt = co_await mbox.read();
                 REQUIRE(value_opt.has_value());
-                REQUIRE(value_opt.value() == i);
+                REQUIRE(value_opt.value() == static_cast<int>(i));
             }
             
             // Last message is 100
