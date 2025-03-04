@@ -155,7 +155,8 @@ void io_loop_basic<poller_type>::run()
     while (state_ == io_loop_state::running || state_ == io_loop_state::shutting_down)
     {
         step();
-        
+
+        LOG(debug) << "Tasks: " << tasks_.size() << ", Scheduled: " << scheduled_.size() << ", Waiters: " << waiters_.size();
         // Check if we're done - all tasks completed AND no more waiters
         if (tasks_.empty() && scheduled_.empty() && waiters_.empty())
         {

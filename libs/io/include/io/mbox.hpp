@@ -29,7 +29,9 @@ namespace io
  */
 
 /**
- * A simple mailbox that can have a single reader and multiple writers.
+ * A simple mailbox that can have a multiple readers waiting for messages. Messages are delivered to the longest-waiting reader,
+ * which resumes its coroutine with the message as its result. If multiple readers are waiting, they form a queue and receive messages
+ * in registration order.
  *
  * @tparam T The type of messages to be sent through the mailbox
  *
@@ -443,7 +445,23 @@ public:
     [[nodiscard]] size_t size() const noexcept {
         return message_queue_.size();
     }
-    
+
+    /**
+     * Check if the mailbox is full.
+     */
+    [[nodiscard]] bool full() const noexcept
+    {
+        return max_queue_size_ > 0 && message_queue_.size() >= max_queue_size_;
+    }
+
+    /**
+     * Check if the mailbox is empty.
+     */
+    [[nodiscard]] bool empty() const noexcept
+    {
+        return message_queue_.empty();
+    }
+
     /**
      * Get the maximum number of messages.
      * 
@@ -461,14 +479,6 @@ public:
     [[nodiscard]] bool is_closed() const noexcept {
         return is_closed_;
     }
-};
-
-/**
- * A mailbox that can have multiple readers and writers, but only one reader will receive each message.
- * Uses C++20 concepts to ensure message types are moveable.
- */
-template <std::movable T>
-class io_mbox_any {
 };
 
 /**

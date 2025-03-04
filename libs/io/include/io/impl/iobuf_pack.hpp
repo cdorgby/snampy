@@ -118,22 +118,22 @@ template <> size_t io_buf::pack_size(const uint8_t &value) {
 //     return pack_size_integral(value);
 // }
 
-template <> size_t io_buf::pack_size(const bool &value)
+template <> size_t io_buf::pack_size([[maybe_unused]] const bool &value)
 {
     return 1;
 }
 
-template <> size_t io_buf::pack_size(const decltype(nullptr) &value)
+template <> size_t io_buf::pack_size([[maybe_unused]] const decltype(nullptr) &value)
 {
     return 1;
 }
 
-template <> size_t io_buf::pack_size(const float &value)
+template <> size_t io_buf::pack_size([[maybe_unused]] const float &value)
 {
     return 5;
 }
 
-template <> size_t io_buf::pack_size(const double &value)
+template <> size_t io_buf::pack_size([[maybe_unused]] const double &value)
 {
     return 9;
 }

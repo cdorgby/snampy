@@ -332,7 +332,7 @@ TEST_CASE("basic recv", "[io_net]")
         auto send_op         = io::send(loop, remote_fd, test_msg, msg_len, sent);
         auto send_res = co_await send_op;
         REQUIRE(send_res == io_result::done);
-        REQUIRE(sent >= 0);                             // Make sure send succeeded
+        REQUIRE(sent > 0);                             // Make sure send succeeded
         REQUIRE(static_cast<size_t>(sent) == msg_len);  // Fix signedness warning
         
         // Keep connection open until explicitly closed at end of test

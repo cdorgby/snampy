@@ -113,6 +113,7 @@ TEST_CASE("io_loop_basic raw waiter", "[io_loop]") {
     auto waiter = io_waiter{loop,
                             [](io_result result, io_waiter *waiter) -> void
                             {
+                                (void)result; // Mark parameter as used
                                 intptr_t cnt = waiter->data_ ? reinterpret_cast<intptr_t>(waiter->data_) : 0;
                                 cnt++;
                                 waiter->data_ = reinterpret_cast<void*>(cnt);
@@ -137,6 +138,7 @@ TEST_CASE("io_loop waiter reuse after reset", "[io_loop]") {
     auto waiter = io_waiter{loop,
                             [](io_result result, io_waiter *waiter) -> void
                             {
+                                (void)result; // Mark parameter as used
                                 intptr_t cnt = waiter->data_ ? reinterpret_cast<intptr_t>(waiter->data_) : 0;
                                 cnt++;
                                 waiter->data_ = reinterpret_cast<void*>(cnt);
