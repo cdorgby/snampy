@@ -109,7 +109,37 @@ public:
      * @param socktype Socket type
      * @param family Address family
      */
-    sock_addr(const std::string_view &addr, const std::string_view &port, uint16_t socktype = SOCK_STREAM, uint16_t family = AF_UNSPEC);
+    sock_addr(const std::string_view &addr,
+              const std::string_view &port,
+              uint16_t family   = AF_UNSPEC,
+              uint16_t socktype = SOCK_STREAM,
+              uint16_t proto    = 0);
+
+    /**
+     * @brief Move constructor
+     * @param other The sock_addr to move from
+     */
+    sock_addr(sock_addr&& other) noexcept;
+
+    /**
+     * @brief Move assignment operator
+     * @param other The sock_addr to move from
+     * @return Reference to this object
+     */
+    sock_addr& operator=(sock_addr&& other) noexcept;
+
+    /**
+     * @brief Copy constructor
+     * @param other The sock_addr to copy from
+     */
+    sock_addr(const sock_addr& other) noexcept;
+
+    /**
+     * @brief Copy assignment operator
+     * @param other The sock_addr to copy from
+     * @return Reference to this object
+     */
+    sock_addr& operator=(const sock_addr& other) noexcept;
 
     /**
      * @brief Gets the underlying sockaddr structure
@@ -138,6 +168,13 @@ public:
     uint16_t port() const;
 
     /**
+     * @brief Sets the port number (for INET/INET6 addresses)
+     * @param port Port number in host byte order
+     * @return Reference to this object for chaining
+     */
+    sock_addr& set_port(uint16_t port);
+
+    /**
      * @brief Gets the address family
      * @return Address family (AF_INET, AF_INET6, or AF_UNIX)
      */
@@ -162,6 +199,18 @@ public:
     std::string to_string() const;
 
     /**
+     * @brief Gets the IP address as a string without port
+     * @return String representation of just the address
+     */
+    std::string address_to_string() const;
+
+    /**
+     * @brief Retrieves a string representation with prefix notation
+     * @return String with CIDR prefix if applicable
+     */
+    std::string to_cidr_string() const;
+
+    /**
      * @brief Gets the network prefix length
      * @return Network prefix length (0-32 for IPv4, 0-128 for IPv6)
      */
@@ -179,7 +228,7 @@ public:
      * @param other Address to compare with
      * @return true if addresses are not equal
      */
-    bool operator!=(const sock_addr& other) const noexcept { return !(*this == other); }
+    bool operator!=(const sock_addr& other) const noexcept;
 
     /**
      * @brief Less than comparison operator for ordering
@@ -193,21 +242,35 @@ public:
      * @param other Address to compare with
      * @return true if this address is greater than other
      */
-    bool operator>(const sock_addr& other) const noexcept { return other < *this; }
+    bool operator>(const sock_addr& other) const noexcept;
 
     /**
      * @brief Less than or equal comparison operator
      * @param other Address to compare with
      * @return true if this address is less than or equal to other
      */
-    bool operator<=(const sock_addr& other) const noexcept { return !(*this > other); }
+    bool operator<=(const sock_addr& other) const noexcept;
 
     /**
      * @brief Greater than or equal comparison operator
      * @param other Address to compare with
      * @return true if this address is greater than or equal to other
      */
-    bool operator>=(const sock_addr& other) const noexcept { return !(*this < other); }
+    bool operator>=(const sock_addr& other) const noexcept;
+
+    /**
+     * @brief Boolean conversion operator
+     * @return true if the address is properly set (has non-zero length)
+     *
+     * This allows for constructions like:
+     * @code
+     * sock_addr addr("192.168.1.1:80");
+     * if (addr) {
+     *     // Address is valid
+     * }
+     * @endcode
+     */
+    explicit operator bool() const noexcept;
 
 private:
     /**
@@ -367,6 +430,12 @@ public:
      * @brief Check if the range is valid
      */
     bool valid() const noexcept { return valid_; }
+
+    /**
+     * @brief Convert the network range to a string representation
+     * @return CIDR notation as string
+     */
+    std::string to_string() const noexcept;
 
 private:
     sock_addr network_;    ///< Network address

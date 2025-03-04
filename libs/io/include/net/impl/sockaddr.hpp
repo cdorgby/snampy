@@ -5,10 +5,10 @@
 namespace io
 {
 
-sock_addr::sock_addr() : len_(sizeof(addr_)), type_(0), protocol_(0), prefix_(0), str_valid_(false) { memset(&addr_, 0, sizeof(addr_)); }
+sock_addr::sock_addr() : len_(0), type_(0), protocol_(0), prefix_(0), str_valid_(false) { memset(&addr_, 0, sizeof(addr_)); }
 
 sock_addr::sock_addr(const struct sockaddr_in &sa, uint8_t prefix, uint16_t socktype, uint16_t proto)
-: len_(0), // Initialize to 0 first
+: len_(0),
   type_(socktype),
   protocol_(proto),
   prefix_(prefix),
@@ -20,7 +20,7 @@ sock_addr::sock_addr(const struct sockaddr_in &sa, uint8_t prefix, uint16_t sock
 }
 
 sock_addr::sock_addr(const struct sockaddr_in6 &sa, uint8_t prefix, uint16_t socktype, uint16_t proto)
-: len_(0), // Initialize to 0 first
+: len_(0),
   type_(socktype),
   protocol_(proto),
   prefix_(prefix),
@@ -32,7 +32,7 @@ sock_addr::sock_addr(const struct sockaddr_in6 &sa, uint8_t prefix, uint16_t soc
 }
 
 sock_addr::sock_addr(const struct sockaddr_un &sa, uint16_t socktype)
-: len_(0), // Initialize to 0 first
+: len_(0),
   type_(socktype),
   protocol_(0),
   prefix_(0),
@@ -44,7 +44,7 @@ sock_addr::sock_addr(const struct sockaddr_un &sa, uint16_t socktype)
 }
 
 sock_addr::sock_addr(const struct sockaddr *sa, socklen_t len, uint8_t prefix, uint16_t socktype, uint16_t proto)
-: len_(0), // Initialize to 0 first
+: len_(0),
   type_(socktype),
   protocol_(proto),
   prefix_(prefix),
@@ -86,27 +86,105 @@ sock_addr::sock_addr(const std::string &addrfull, uint16_t family, uint16_t sock
     parse_into_sockaddr_common(addrfull, family, socktype, proto);
 }
 
-sock_addr::sock_addr(const std::string_view &addr, const std::string_view &port, uint16_t socktype, uint16_t family)
+sock_addr::sock_addr(const std::string_view &addr, const std::string_view &port, uint16_t family, uint16_t socktype, uint16_t proto)
 : len_(0),
   type_(socktype),
-  protocol_(0),
+  protocol_(proto),
   prefix_(0),
   str_valid_(false)
 {
     memset(&addr_, 0, sizeof(addr_));
-    std::string addr_str(addr);
-    addr_str += ":";
-    addr_str += port;
-    parse_into_sockaddr_common(addr_str, family, socktype, 0);
+    std::string addr_str;
+    
+    // Handle IPv6 address - needs brackets
+    if (family == AF_INET6) {
+        // Check if the address already has brackets
+        if (addr.size() >= 2 && addr[0] == '[' && addr[addr.size()-1] == ']') {
+            addr_str = std::string(addr) + ":" + std::string(port);
+        } else {
+            // Add brackets around the IPv6 address
+            addr_str = "[" + std::string(addr) + "]:" + std::string(port);
+        }
+    } else {
+        // IPv4 or other address type
+        addr_str = std::string(addr) + ":" + std::string(port);
+    }
+    
+    parse_into_sockaddr_common(addr_str, family, socktype, proto);
 }
 
-inline std::ostream &operator<<(std::ostream &os, const sock_addr &sa)
+sock_addr::sock_addr(sock_addr&& other) noexcept
+    : len_(other.len_),
+      addr_(other.addr_),
+      type_(other.type_),
+      protocol_(other.protocol_),
+      prefix_(other.prefix_),
+      str_(std::move(other.str_)),
+      str_valid_(other.str_valid_)
+{
+    // Reset the source object
+    other.len_ = 0;
+    other.type_ = 0;
+    other.protocol_ = 0;
+    other.prefix_ = 0;
+    other.str_valid_ = false;
+    memset(&other.addr_, 0, sizeof(other.addr_));
+}
+
+sock_addr& sock_addr::operator=(sock_addr&& other) noexcept
+{
+    if (this != &other) {
+        len_ = other.len_;
+        addr_ = other.addr_;
+        type_ = other.type_;
+        protocol_ = other.protocol_;
+        prefix_ = other.prefix_;
+        str_ = std::move(other.str_);
+        str_valid_ = other.str_valid_;
+
+        // Reset the source object
+        other.len_ = 0;
+        other.type_ = 0;
+        other.protocol_ = 0;
+        other.prefix_ = 0;
+        other.str_valid_ = false;
+        memset(&other.addr_, 0, sizeof(other.addr_));
+    }
+    return *this;
+}
+
+sock_addr::sock_addr(const sock_addr& other) noexcept
+    : len_(other.len_),
+      addr_(other.addr_),
+      type_(other.type_),
+      protocol_(other.protocol_),
+      prefix_(other.prefix_),
+      str_(other.str_),
+      str_valid_(other.str_valid_)
+{
+}
+
+sock_addr& sock_addr::operator=(const sock_addr& other) noexcept
+{
+    if (this != &other) {
+        len_ = other.len_;
+        addr_ = other.addr_;
+        type_ = other.type_;
+        protocol_ = other.protocol_;
+        prefix_ = other.prefix_;
+        str_ = other.str_;
+        str_valid_ = other.str_valid_;
+    }
+    return *this;
+}
+
+std::ostream &operator<<(std::ostream &os, const sock_addr &sa)
 {
     os << sa.to_string();
     return os;
 }
 
-inline bool sock_addr::setup_wildcard(const char *port, uint8_t family, uint16_t socktype, uint16_t proto)
+bool sock_addr::setup_wildcard(const char *port, uint8_t family, uint16_t socktype, uint16_t proto)
 {
     memset(&addr_, 0, sizeof(addr_));
     type_     = socktype;
@@ -116,7 +194,7 @@ inline bool sock_addr::setup_wildcard(const char *port, uint8_t family, uint16_t
     {
         addr_.sin.sin_family      = AF_INET;
         addr_.sin.sin_addr.s_addr = INADDR_ANY;
-        addr_.sin.sin_port        = port ? htons(atoi(port)) : 0;
+        addr_.sin.sin_port        = port ? htons(std::stoi(port)) : 0;
         len_                      = sizeof(struct sockaddr_in);
         prefix_                   = 32;
         return true;
@@ -125,7 +203,7 @@ inline bool sock_addr::setup_wildcard(const char *port, uint8_t family, uint16_t
     {
         addr_.sin6.sin6_family = AF_INET6;
         addr_.sin6.sin6_addr   = in6addr_any;
-        addr_.sin6.sin6_port   = port ? htons(atoi(port)) : 0;
+        addr_.sin6.sin6_port   = port ? htons(std::stoi(port)) : 0;
         len_                   = sizeof(struct sockaddr_in6);
         prefix_                = 128;
         return true;
@@ -133,7 +211,7 @@ inline bool sock_addr::setup_wildcard(const char *port, uint8_t family, uint16_t
     return false;
 }
 
-inline bool sock_addr::setup_localhost(const char *port, uint8_t family, uint16_t socktype, uint16_t proto)
+bool sock_addr::setup_localhost(const char *port, uint8_t family, uint16_t socktype, uint16_t proto)
 {
     memset(&addr_, 0, sizeof(addr_));
     type_     = socktype;
@@ -143,7 +221,7 @@ inline bool sock_addr::setup_localhost(const char *port, uint8_t family, uint16_
     {
         addr_.sin.sin_family      = AF_INET;
         addr_.sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        addr_.sin.sin_port        = port ? htons(atoi(port)) : 0;
+        addr_.sin.sin_port        = port ? htons(std::stoi(port)) : 0;
         len_                      = sizeof(struct sockaddr_in);
         prefix_                   = 32;
         return true;
@@ -152,7 +230,7 @@ inline bool sock_addr::setup_localhost(const char *port, uint8_t family, uint16_
     {
         addr_.sin6.sin6_family = AF_INET6;
         addr_.sin6.sin6_addr   = in6addr_loopback;
-        addr_.sin6.sin6_port   = port ? htons(atoi(port)) : 0;
+        addr_.sin6.sin6_port   = port ? htons(std::stoi(port)) : 0;
         len_                   = sizeof(struct sockaddr_in6);
         prefix_                = 128;
         return true;
@@ -160,7 +238,7 @@ inline bool sock_addr::setup_localhost(const char *port, uint8_t family, uint16_
     return false;
 }
 
-inline bool sock_addr::parse_into_sockaddr_common(const std::string_view &address, uint8_t family, uint16_t socktype, uint16_t proto)
+bool sock_addr::parse_into_sockaddr_common(const std::string_view &address, uint8_t family, uint16_t socktype, uint16_t proto)
 {
     // For Unix domain sockets, handle directly without getaddrinfo
     if (family == AF_UNIX) { return parse_unix_address(address, socktype); }
@@ -168,21 +246,31 @@ inline bool sock_addr::parse_into_sockaddr_common(const std::string_view &addres
     return parse_inet_address(address, family, socktype, proto);
 }
 
-inline bool sock_addr::parse_inet_address(const std::string_view &address, uint8_t family, uint16_t socktype, uint16_t proto)
+bool sock_addr::parse_inet_address(const std::string_view &address, uint8_t family, uint16_t socktype, uint16_t proto)
 {
     if (address.empty()) { return false; }
 
-    char addr_copy[address.size() + 1];
+    // Replace VLA with std::vector
+    std::vector<char> addr_copy(address.size() + 1);
+    std::memcpy(addr_copy.data(), address.data(), address.size());
+    addr_copy[address.size()] = '\0';
+    char *addr                = addr_copy.data();
+
     char port[6]             = {0};
     uint8_t prefix           = 0;
     bool has_port            = false;
     bool has_prefix          = false;
     bool error_cuz_of_braket = false;
 
-    strncpy(addr_copy, address.data(), address.size());
-    addr_copy[address.size()] = '\0';
-    char *addr                = addr_copy;
-
+    // Special handling for common cases
+    if (strcmp(addr, "localhost") == 0) { 
+        return setup_localhost(nullptr, family, socktype, proto); 
+    }
+    
+    // Check for wildcards before processing them
+    // This fix handles cases like "*:8080" properly by extracting the port first
+    bool is_wildcard = (*addr == '*' || strcmp(addr, "any") == 0);
+    
     // Handle brackets for IPv6
     if (*addr == '[')
     {
@@ -226,22 +314,28 @@ inline bool sock_addr::parse_inet_address(const std::string_view &address, uint8
         *prefix_start = '\0';
     }
 
-    // Process port if present
+    // Process port if present before handling wildcards
     if (port_start)
     {
         const char *port_str = port_start + 1;
-        char *endptr;
-        unsigned long ival = strtoul(port_str, &endptr, 10);
-
-        if (endptr == port_str || *endptr != '\0' || ival > 65535)
-        {
-            LOG(error).print("Invalid port number");
+        try {
+            int port_num = std::stoi(port_str);
+            if (port_num < 0 || port_num > 65535) {
+                LOG(error).print("Port number out of range");
+                return false;
+            }
+            std::snprintf(port, sizeof(port), "%d", port_num);
+            has_port = true;
+        } catch (const std::exception& e) {
+            LOG(error).printf("Invalid port number: %s", e.what());
             return false;
         }
-
-        strncpy(port, port_str, sizeof(port) - 1);
-        has_port    = true;
         *port_start = '\0';
+    }
+
+    // Now handle wildcards after port is processed
+    if (is_wildcard) { 
+        return setup_wildcard(has_port ? port : nullptr, family, socktype, proto); 
     }
 
     if (error_cuz_of_braket)
@@ -306,7 +400,7 @@ inline bool sock_addr::parse_inet_address(const std::string_view &address, uint8
     return false;
 }
 
-inline bool sock_addr::parse_unix_address(const std::string_view &path, uint16_t socktype)
+bool sock_addr::parse_unix_address(const std::string_view &path, uint16_t socktype)
 {
     memset(&addr_, 0, sizeof(addr_));
     len_                 = 0; // Initialize to 0 first
@@ -339,39 +433,49 @@ inline bool sock_addr::parse_unix_address(const std::string_view &path, uint16_t
     return true;
 }
 
-inline struct sockaddr *sock_addr::sockaddr() { return reinterpret_cast<struct sockaddr *>(&addr_); }
+struct sockaddr *sock_addr::sockaddr() { return reinterpret_cast<struct sockaddr *>(&addr_); }
 
-inline const struct sockaddr *sock_addr::sockaddr() const { return reinterpret_cast<const struct sockaddr *>(&addr_); }
+const struct sockaddr *sock_addr::sockaddr() const { return reinterpret_cast<const struct sockaddr *>(&addr_); }
 
-inline socklen_t sock_addr::len() const { return len_; }
+socklen_t sock_addr::len() const { return len_; }
 
-inline uint16_t sock_addr::port() const
+uint16_t sock_addr::port() const
 {
     return ntohs(addr_.sa.sa_family == AF_INET ? addr_.sin.sin_port : addr_.sin6.sin6_port);
 }
 
-inline uint16_t sock_addr::family() const { return addr_.sa.sa_family; }
+uint16_t sock_addr::family() const { return addr_.sa.sa_family; }
 
-inline uint16_t sock_addr::type() const { return type_; }
+uint16_t sock_addr::type() const { return type_; }
 
-inline uint16_t sock_addr::protocol() const { return protocol_; }
+uint16_t sock_addr::protocol() const { return protocol_; }
 
-inline std::string sock_addr::to_string() const
+std::string sock_addr::to_string() const
 {
+    if (str_valid_) return str_;
+    
     std::string str;
     switch (addr_.sa.sa_family)
     {
     case AF_INET:
-        str = inet_ntoa(addr_.sin.sin_addr);
-        if (port()) str += ":" + std::to_string(port());
+        char addr4[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &addr_.sin.sin_addr, addr4, INET_ADDRSTRLEN)) {
+            str = addr4;
+            if (port()) str += ":" + std::to_string(port());
+        } else {
+            str = "invalid-ipv4";
+        }
         break;
     case AF_INET6:
-        char addr[INET6_ADDRSTRLEN];
-        str = "[";
-        inet_ntop(AF_INET6, &addr_.sin6.sin6_addr, addr, INET6_ADDRSTRLEN);
-        str += addr;
-        str += "]";
-        if (port()) str += ":" + std::to_string(port());
+        char addr6[INET6_ADDRSTRLEN];
+        if (inet_ntop(AF_INET6, &addr_.sin6.sin6_addr, addr6, INET6_ADDRSTRLEN)) {
+            str = "[";
+            str += addr6;
+            str += "]";
+            if (port()) str += ":" + std::to_string(port());
+        } else {
+            str = "invalid-ipv6";
+        }
         break;
     case AF_UNIX:
         if (addr_.sun.sun_path[0] == '\0') {
@@ -388,10 +492,82 @@ inline std::string sock_addr::to_string() const
         break;
     default: str = "Unknown address family"; break; // Handle unknown address families
     }
+    
+    str_ = str;
+    str_valid_ = true;
     return str;
 }
 
-inline bool sock_addr::operator==(const sock_addr &other) const noexcept
+sock_addr& sock_addr::set_port(uint16_t port) {
+    if (addr_.sa.sa_family == AF_INET) {
+        addr_.sin.sin_port = htons(port);
+        str_valid_ = false;
+    } else if (addr_.sa.sa_family == AF_INET6) {
+        addr_.sin6.sin6_port = htons(port);
+        str_valid_ = false;
+    }
+    return *this;
+}
+
+std::string sock_addr::address_to_string() const {
+    switch (addr_.sa.sa_family) {
+    case AF_INET: {
+        char addr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &addr_.sin.sin_addr, addr, INET_ADDRSTRLEN);
+        return std::string(addr);
+    }
+    case AF_INET6: {
+        char addr[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, &addr_.sin6.sin6_addr, addr, INET6_ADDRSTRLEN);
+        return std::string(addr);
+    }
+    case AF_UNIX:
+        // Same as to_string() for Unix domain sockets
+        return to_string();
+    default:
+        return "Unknown address family";
+    }
+}
+
+std::string sock_addr::to_cidr_string() const {
+    if ((addr_.sa.sa_family != AF_INET && addr_.sa.sa_family != AF_INET6) || prefix_ == 0) {
+        return to_string();
+    }
+    
+    std::string base = to_string();
+    std::string prefix_str = "/" + std::to_string(prefix_);
+    
+    if (addr_.sa.sa_family == AF_INET) {
+        // For IPv4: "addr/prefix[:port]"
+        size_t port_pos = base.rfind(':');
+        if (port_pos != std::string::npos) {
+            // Insert prefix before port
+            return base.substr(0, port_pos) + prefix_str + base.substr(port_pos);
+        } else {
+            // No port, just append prefix
+            return base + prefix_str;
+        }
+    } else {
+        // For IPv6: "[addr]/prefix[:port]"
+        size_t bracket_pos = base.rfind(']');
+        if (bracket_pos == std::string::npos) {
+            // Should not happen with valid IPv6 addresses
+            return base + prefix_str;
+        }
+        
+        // Check if there's a port after the bracket
+        size_t port_pos = base.find(':', bracket_pos);
+        if (port_pos != std::string::npos) {
+            // Insert prefix between bracket and port
+            return base.substr(0, bracket_pos + 1) + prefix_str + base.substr(port_pos);
+        } else {
+            // No port, append after bracket
+            return base.substr(0, bracket_pos + 1) + prefix_str;
+        }
+    }
+}
+
+bool sock_addr::operator==(const sock_addr &other) const noexcept
 {
     if (addr_.sa.sa_family != other.addr_.sa.sa_family) return false;
 
@@ -413,7 +589,23 @@ inline bool sock_addr::operator==(const sock_addr &other) const noexcept
     }
 }
 
-inline bool sock_addr::operator<(const sock_addr &other) const noexcept
+bool sock_addr::operator!=(const sock_addr& other) const noexcept { 
+    return !(*this == other); 
+}
+
+bool sock_addr::operator>(const sock_addr& other) const noexcept { 
+    return other < *this; 
+}
+
+bool sock_addr::operator<=(const sock_addr& other) const noexcept { 
+    return !(*this > other); 
+}
+
+bool sock_addr::operator>=(const sock_addr& other) const noexcept { 
+    return !(*this < other); 
+}
+
+bool sock_addr::operator<(const sock_addr &other) const noexcept
 {
     // First compare by address family
     if (addr_.sa.sa_family != other.addr_.sa.sa_family) return addr_.sa.sa_family < other.addr_.sa.sa_family;
@@ -450,9 +642,14 @@ inline bool sock_addr::operator<(const sock_addr &other) const noexcept
     }
 }
 
-inline network_range::network_range() noexcept : prefix_(0), valid_(false) { memset(&mask_, 0, sizeof(mask_)); }
+sock_addr::operator bool() const noexcept 
+{
+    return len_ > 0;
+}
 
-inline network_range::network_range(const sock_addr &addr) noexcept
+network_range::network_range() noexcept : prefix_(0), valid_(false) { memset(&mask_, 0, sizeof(mask_)); }
+
+network_range::network_range(const sock_addr &addr) noexcept
 : network_(addr),
   prefix_(addr.prefix()),
   valid_(false) // Start with invalid
@@ -479,7 +676,7 @@ inline network_range::network_range(const sock_addr &addr) noexcept
     valid_ = true;
 }
 
-inline network_range::network_range(const std::string &addr_str, uint16_t family) noexcept : prefix_(0), valid_(false)
+network_range::network_range(const std::string &addr_str, uint16_t family) noexcept : prefix_(0), valid_(false)
 {
     memset(&mask_, 0, sizeof(mask_));
 
@@ -526,7 +723,7 @@ inline network_range::network_range(const std::string &addr_str, uint16_t family
     valid_ = true;
 }
 
-inline uint8_t network_range::netmask_to_prefix(const std::string &mask_str) noexcept
+uint8_t network_range::netmask_to_prefix(const std::string &mask_str) noexcept
 {
     sock_addr mask(mask_str, AF_INET);
     if (mask.len() == 0) { return 0; }
@@ -551,7 +748,7 @@ inline uint8_t network_range::netmask_to_prefix(const std::string &mask_str) noe
     return prefix;
 }
 
-inline void network_range::init_mask() noexcept
+void network_range::init_mask() noexcept
 {
     if (network_.family() == AF_INET)
     {
@@ -581,7 +778,7 @@ inline void network_range::init_mask() noexcept
     }
 }
 
-inline void network_range::apply_mask() noexcept
+void network_range::apply_mask() noexcept
 {
     if (network_.family() == AF_INET)
     {
@@ -597,7 +794,7 @@ inline void network_range::apply_mask() noexcept
     }
 }
 
-inline bool network_range::contains(const sock_addr &addr) const noexcept
+bool network_range::contains(const sock_addr &addr) const noexcept
 {
     if (!valid_ || addr.family() != network_.family()) { return false; }
 
@@ -623,11 +820,23 @@ inline bool network_range::contains(const sock_addr &addr) const noexcept
     return false;
 }
 
+std::string network_range::to_string() const noexcept {
+    if (!valid_) return "invalid-network";
+    
+    std::string result;
+    if (network_.family() == AF_INET) {
+        result = network_.address_to_string() + "/" + std::to_string(prefix_);
+    } else if (network_.family() == AF_INET6) {
+        result = "[" + network_.address_to_string() + "]/" + std::to_string(prefix_);
+    }
+    return result;
+}
+
 } // namespace io
 
 namespace std
 {
-inline size_t hash<io::sock_addr>::operator()(const io::sock_addr &addr) const noexcept
+size_t hash<io::sock_addr>::operator()(const io::sock_addr &addr) const noexcept
 {
     size_t h = 0;
     switch (addr.family())

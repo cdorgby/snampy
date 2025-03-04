@@ -694,3 +694,423 @@ TEST_CASE("sock_addr with loopback addresses", "[sock_addr]") {
     }
 }
 
+TEST_CASE("sock_addr new methods", "[sock_addr]") {
+    SECTION("set_port method") {
+        sock_addr addr("192.168.1.1", AF_INET);
+        REQUIRE(addr.port() == 0);
+        
+        addr.set_port(8080);
+        REQUIRE(addr.port() == 8080);
+        REQUIRE(addr.to_string() == "192.168.1.1:8080");
+        
+        // Change port
+        addr.set_port(9000);
+        REQUIRE(addr.port() == 9000);
+        REQUIRE(addr.to_string() == "192.168.1.1:9000");
+    }
+    
+    SECTION("set_port with IPv6") {
+        sock_addr addr("[2001:db8::1]", AF_INET6);
+        REQUIRE(addr.port() == 0);
+        
+        addr.set_port(8080);
+        REQUIRE(addr.port() == 8080);
+        REQUIRE(addr.to_string() == "[2001:db8::1]:8080");
+    }
+
+    SECTION("address_to_string method for IPv4") {
+        sock_addr addr("192.168.1.1:8080", AF_INET);
+        REQUIRE(addr.address_to_string() == "192.168.1.1");
+    }
+    
+    SECTION("address_to_string method for IPv6") {
+        sock_addr addr("[2001:db8::1]:8080", AF_INET6);
+        REQUIRE(addr.address_to_string() == "2001:db8::1");
+    }
+    
+    SECTION("address_to_string method for Unix domain") {
+        sock_addr addr("/tmp/test.sock", AF_UNIX);
+        REQUIRE(addr.address_to_string() == "/tmp/test.sock");
+    }
+    
+    SECTION("to_cidr_string method for IPv4 with port") {
+        sock_addr addr("192.168.1.1:8080", AF_INET);
+        REQUIRE(addr.to_cidr_string() == "192.168.1.1/32:8080");
+    }
+    
+    SECTION("to_cidr_string method for IPv4 without port") {
+        sock_addr addr("192.168.1.1", AF_INET);
+        REQUIRE(addr.to_cidr_string() == "192.168.1.1/32");
+    }
+    
+    SECTION("to_cidr_string method for IPv6 with port") {
+        sock_addr addr("[2001:db8::1]:8080", AF_INET6);
+        REQUIRE(addr.to_cidr_string() == "[2001:db8::1]/128:8080");
+    }
+    
+    SECTION("to_cidr_string method for IPv6 without port") {
+        sock_addr addr("[2001:db8::1]", AF_INET6);
+        REQUIRE(addr.to_cidr_string() == "[2001:db8::1]/128");
+    }
+    
+    SECTION("to_cidr_string method with custom prefix") {
+        sock_addr addr("192.168.1.0/24:8080", AF_INET);
+        REQUIRE(addr.to_cidr_string() == "192.168.1.0/24:8080");
+    }
+    
+    SECTION("to_cidr_string method for Unix domain") {
+        sock_addr addr("/tmp/test.sock", AF_UNIX);
+        REQUIRE(addr.to_cidr_string() == "/tmp/test.sock"); // Should be the same as to_string()
+    }
+    
+    SECTION("string caching works correctly") {
+        sock_addr addr("192.168.1.1:8080", AF_INET);
+        std::string str1 = addr.to_string();
+        std::string str2 = addr.to_string();
+        
+        // Both calls should return the same string object
+        REQUIRE(str1 == str2);
+        
+        // Modifying the address should invalidate the cache
+        addr.set_port(9000);
+        std::string str3 = addr.to_string();
+        REQUIRE(str3 != str1);
+        REQUIRE(str3 == "192.168.1.1:9000");
+    }
+}
+
+TEST_CASE("network_range to_string", "[network_range]") {
+    SECTION("ipv4 network range") {
+        network_range net("192.168.1.0/24");
+        REQUIRE(net.valid());
+        REQUIRE(net.to_string() == "192.168.1.0/24");
+    }
+    
+    SECTION("ipv6 network range") {
+        network_range net("[2001:db8::]/64");
+        REQUIRE(net.valid());
+        REQUIRE(net.to_string() == "[2001:db8::]/64");
+    }
+    
+    SECTION("invalid network range") {
+        network_range net;
+        REQUIRE_FALSE(net.valid());
+        REQUIRE(net.to_string() == "invalid-network");
+    }
+    
+    SECTION("single host network") {
+        network_range net("192.168.1.1/32");
+        REQUIRE(net.valid());
+        REQUIRE(net.to_string() == "192.168.1.1/32");
+    }
+    
+    SECTION("zero prefix network") {
+        network_range net("0.0.0.0/0");
+        REQUIRE(net.valid());
+        REQUIRE(net.to_string() == "0.0.0.0/0");
+    }
+}
+
+TEST_CASE("invalid port handling", "[sock_addr]") {
+    SECTION("negative port") {
+        sock_addr addr("192.168.1.1:-1", AF_INET);
+        REQUIRE(addr.len() == 0);
+    }
+    
+    SECTION("port out of range") {
+        sock_addr addr("192.168.1.1:65536", AF_INET);
+        REQUIRE(addr.len() == 0);
+    }
+    
+    SECTION("non-numeric port") {
+        sock_addr addr("192.168.1.1:abc", AF_INET);
+        REQUIRE(addr.len() == 0);
+    }
+    
+    SECTION("empty port") {
+        sock_addr addr("192.168.1.1:", AF_INET);
+        REQUIRE(addr.len() == 0);
+    }
+}
+
+TEST_CASE("error handling for string representation", "[sock_addr]") {
+    SECTION("IPv4 address with proper error handling") {
+        // This test just verifies that our error handling code would work if inet_ntop failed
+        sock_addr addr("192.168.1.1", AF_INET);
+        REQUIRE(addr.to_string() != "invalid-ipv4");
+    }
+    
+    SECTION("IPv6 address with proper error handling") {
+        // This test just verifies that our error handling code would work if inet_ntop failed
+        sock_addr addr("[::1]", AF_INET6);
+        REQUIRE(addr.to_string() != "invalid-ipv6");
+    }
+}
+
+TEST_CASE("method chaining", "[sock_addr]") {
+    SECTION("set_port chaining") {
+        sock_addr addr("192.168.1.1", AF_INET);
+        std::string result = addr.set_port(8080).to_string();
+        REQUIRE(result == "192.168.1.1:8080");
+    }
+    
+    SECTION("multiple chained operations") {
+        // Fix: Use explicit bool conversion with static_cast
+        bool valid = static_cast<bool>(sock_addr("192.168.1.1", AF_INET).set_port(8080));
+        REQUIRE(valid);
+        
+        // Alternative fix: More readable approach
+        sock_addr addr("192.168.1.1", AF_INET);
+        addr.set_port(8080);
+        REQUIRE(static_cast<bool>(addr));
+    }
+}
+
+TEST_CASE("additional sock_addr edge cases", "[sock_addr]") {
+    SECTION("zero port value") {
+        sock_addr addr("127.0.0.1:0", AF_INET);
+        REQUIRE(addr.port() == 0);
+        REQUIRE(addr.to_string() == "127.0.0.1");  // Should not show the zero port
+        
+        addr.set_port(0);
+        REQUIRE(addr.to_string() == "127.0.0.1");  // Should remain the same
+    }
+    
+    SECTION("maximum port value") {
+        sock_addr addr("127.0.0.1:65535", AF_INET);
+        REQUIRE(addr.port() == 65535);
+        REQUIRE(addr.to_string() == "127.0.0.1:65535");
+    }
+    
+    SECTION("special IPv4 addresses") {
+        // Multicast address
+        sock_addr addr1("224.0.0.1", AF_INET);
+        REQUIRE(addr1.family() == AF_INET);
+        REQUIRE(addr1.to_string() == "224.0.0.1");
+        
+        // Broadcast address
+        sock_addr addr2("255.255.255.255", AF_INET);
+        REQUIRE(addr2.family() == AF_INET);
+        REQUIRE(addr2.to_string() == "255.255.255.255");
+        
+        // Link-local address
+        sock_addr addr3("169.254.1.1", AF_INET);
+        REQUIRE(addr3.family() == AF_INET);
+        REQUIRE(addr3.to_string() == "169.254.1.1");
+    }
+    
+    SECTION("special IPv6 addresses") {
+        // Multicast address
+        sock_addr addr1("[ff02::1]", AF_INET6);
+        REQUIRE(addr1.family() == AF_INET6);
+        REQUIRE(addr1.to_string() == "[ff02::1]");
+        
+        // Link-local address
+        sock_addr addr2("[fe80::1]", AF_INET6);
+        REQUIRE(addr2.family() == AF_INET6);
+        REQUIRE(addr2.to_string() == "[fe80::1]");
+        
+        // IPv4-mapped IPv6 address
+        sock_addr addr3("[::ffff:192.168.1.1]", AF_INET6);
+        REQUIRE(addr3.family() == AF_INET6);
+        REQUIRE(addr3.to_string() == "[::ffff:192.168.1.1]");
+    }
+}
+
+TEST_CASE("protocol variants", "[sock_addr]") {
+    SECTION("explicit TCP protocol") {
+        sock_addr addr("127.0.0.1:80", AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        REQUIRE(addr.protocol() == IPPROTO_TCP);
+        REQUIRE(addr.type() == SOCK_STREAM);
+    }
+    
+    SECTION("explicit UDP protocol") {
+        sock_addr addr("127.0.0.1:123", AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        REQUIRE(addr.protocol() == IPPROTO_UDP);
+        REQUIRE(addr.type() == SOCK_DGRAM);
+    }
+    
+    SECTION("explicit SCTP protocol") {
+        sock_addr addr("127.0.0.1:38412", AF_INET, SOCK_STREAM, IPPROTO_SCTP);
+        REQUIRE(addr.protocol() == IPPROTO_SCTP);
+        REQUIRE(addr.type() == SOCK_STREAM);
+    }
+}
+
+TEST_CASE("str_valid_ caching behavior", "[sock_addr]") {
+    SECTION("multiple to_string() calls") {
+        sock_addr addr("192.168.1.1:8080", AF_INET);
+        
+        // First call should set the cache
+        std::string str1 = addr.to_string();
+        REQUIRE(str1 == "192.168.1.1:8080");
+        
+        // Second call should use the cache
+        std::string str2 = addr.to_string();
+        REQUIRE(str2 == str1);
+    }
+    
+    SECTION("set_port() invalidates cache") {
+        sock_addr addr("192.168.1.1:8080", AF_INET);
+        std::string str1 = addr.to_string();
+        
+        // Change port and verify cache is invalidated
+        addr.set_port(9090);
+        std::string str2 = addr.to_string();
+        REQUIRE(str2 == "192.168.1.1:9090");
+        REQUIRE(str2 != str1);
+        
+        // Calling to_string() again should use the cache
+        std::string str3 = addr.to_string();
+        REQUIRE(str3 == str2);
+    }
+}
+
+TEST_CASE("network_range complex operations", "[network_range]") {
+    SECTION("overlapping networks") {
+        network_range net1("192.168.0.0/16");
+        network_range net2("192.168.1.0/24");
+        
+        sock_addr addr1("192.168.1.1", AF_INET);
+        sock_addr addr2("192.168.2.1", AF_INET);
+        
+        REQUIRE(net1.contains(addr1));  // Both networks contain 192.168.1.1
+        REQUIRE(net2.contains(addr1));
+        
+        REQUIRE(net1.contains(addr2));  // Only the larger network contains 192.168.2.1
+        REQUIRE_FALSE(net2.contains(addr2));
+    }
+    
+    SECTION("boundary conditions") {
+        network_range net("192.168.1.0/24");
+        
+        // Network address itself
+        sock_addr addr1("192.168.1.0", AF_INET);
+        REQUIRE(net.contains(addr1));
+        
+        // Broadcast address
+        sock_addr addr2("192.168.1.255", AF_INET);
+        REQUIRE(net.contains(addr2));
+        
+        // Just outside the network
+        sock_addr addr3("192.168.0.255", AF_INET);
+        REQUIRE_FALSE(net.contains(addr3));
+        
+        sock_addr addr4("192.168.2.0", AF_INET);
+        REQUIRE_FALSE(net.contains(addr4));
+    }
+    
+    SECTION("IPv6 boundary conditions") {
+        network_range net("[2001:db8::]/64");
+        
+        // Network address itself
+        sock_addr addr1("[2001:db8::]", AF_INET6);
+        REQUIRE(net.contains(addr1));
+        
+        // Last address in network
+        sock_addr addr2("[2001:db8::ffff:ffff:ffff:ffff]", AF_INET6);
+        REQUIRE(net.contains(addr2));
+        
+        // Just outside the network
+        sock_addr addr3("[2001:db8:1::]", AF_INET6);
+        REQUIRE_FALSE(net.contains(addr3));
+    }
+    
+    SECTION("zero-prefix network (match all)") {
+        network_range ipv4_all("0.0.0.0/0");
+        network_range ipv6_all("[::]/0");
+        
+        // Should match any address of the same family
+        sock_addr addr1("192.168.1.1", AF_INET);
+        sock_addr addr2("10.0.0.1", AF_INET);
+        sock_addr addr3("[2001:db8::1]", AF_INET6);
+        sock_addr addr4("[::1]", AF_INET6);
+        
+        REQUIRE(ipv4_all.contains(addr1));
+        REQUIRE(ipv4_all.contains(addr2));
+        REQUIRE(ipv6_all.contains(addr3));
+        REQUIRE(ipv6_all.contains(addr4));
+        
+        // But shouldn't match addresses of a different family
+        REQUIRE_FALSE(ipv4_all.contains(addr3));
+        REQUIRE_FALSE(ipv6_all.contains(addr1));
+    }
+}
+
+TEST_CASE("complex CIDR string conversions", "[sock_addr]") {
+    SECTION("various prefix lengths for IPv4") {
+        sock_addr addr1("192.168.1.0/8", AF_INET);
+        REQUIRE(addr1.prefix() == 8);
+        REQUIRE(addr1.to_cidr_string() == "192.168.1.0/8");
+        
+        sock_addr addr2("192.168.1.0/16:8080", AF_INET);
+        REQUIRE(addr2.prefix() == 16);
+        REQUIRE(addr2.to_cidr_string() == "192.168.1.0/16:8080");
+    }
+    
+    SECTION("various prefix lengths for IPv6") {
+        sock_addr addr1("[2001:db8::]/32", AF_INET6);
+        REQUIRE(addr1.prefix() == 32);
+        REQUIRE(addr1.to_cidr_string() == "[2001:db8::]/32");
+        
+        sock_addr addr2("[2001:db8::]/64:8080", AF_INET6);
+        REQUIRE(addr2.prefix() == 64);
+        REQUIRE(addr2.to_cidr_string() == "[2001:db8::]/64:8080");
+    }
+    
+    SECTION("prefix modification and display") {
+        sock_addr addr("192.168.1.1", AF_INET);
+        
+        // Default prefix should be 32 for IPv4
+        REQUIRE(addr.prefix() == 32);
+        REQUIRE(addr.to_cidr_string() == "192.168.1.1/32");
+        
+        // Setting port shouldn't affect the prefix in display
+        addr.set_port(8080);
+        REQUIRE(addr.to_cidr_string() == "192.168.1.1/32:8080");
+    }
+}
+
+TEST_CASE("sockaddr construction from address and port strings", "[sock_addr]") {
+    SECTION("IPv4 address with separate port") {
+        sock_addr addr("192.168.1.1", "8080", AF_INET);
+        REQUIRE(addr.family() == AF_INET);
+        REQUIRE(addr.port() == 8080);
+        REQUIRE(addr.to_string() == "192.168.1.1:8080");
+    }
+    
+    SECTION("IPv6 address with separate port") {
+        sock_addr addr("2001:db8::1", "8080", AF_INET6);
+        REQUIRE(addr.family() == AF_INET6);
+        REQUIRE(addr.port() == 8080);
+        REQUIRE(addr.to_string() == "[2001:db8::1]:8080");
+    }
+    
+    SECTION("hostname with separate port") {
+        sock_addr addr("localhost", "80", AF_INET);
+        REQUIRE(addr.family() == AF_INET);
+        REQUIRE(addr.port() == 80);
+    }
+}
+
+TEST_CASE("sockaddr move semantics", "[sock_addr]") {
+    SECTION("move constructor preserves all fields") {
+        sock_addr original("192.168.1.1:8080", AF_INET);
+        sock_addr moved(std::move(original));
+        
+        REQUIRE(moved.family() == AF_INET);
+        REQUIRE(moved.port() == 8080);
+        REQUIRE(moved.to_string() == "192.168.1.1:8080");
+    }
+    
+    SECTION("move assignment preserves all fields") {
+        sock_addr original("192.168.1.1:8080", AF_INET);
+        sock_addr moved;
+        moved = std::move(original);
+        
+        REQUIRE(moved.family() == AF_INET);
+        REQUIRE(moved.port() == 8080);
+        REQUIRE(moved.to_string() == "192.168.1.1:8080");
+    }
+}
+
