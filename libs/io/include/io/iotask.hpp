@@ -184,7 +184,7 @@ template <> struct io_task_promise<void> final : public io_task_promise_base
  * The `io_func` class represents a coroutine task that can be awaited on. It provides:
  *   - Proper lifetime management of the coroutine
  *   - Exception propagation
-     *   - Continuation chaining for async operations
+ *   - Continuation chaining for async operations
  *   - Move-only semantics
  *   - Cancellation support, allowing the coroutine to be cancelled and throw an exception when awaited. Cancellation
  *     is cooperative and must be checked at suspension points.
@@ -377,6 +377,15 @@ io_func<void> io_task_promise<void>::get_return_object() noexcept
 
 } // namespace detail
 
+/**
+ * @brief A coroutine task type for that integrates with the I/O loop.
+ *
+ * The @e io_task class represents a coroutine task that can be awaited on and that can be scheduled with an I/O loop.
+ *
+ * @note The function (even though it returns a void) it still must have an explicit co_return statement at the end
+ * or its return will not be detected by the I/O loop when the task has been scheduled with an I/O loop.
+ *
+ */
 using io_task = detail::io_func<void>;
 template <typename return_type> using io_func = detail::io_func<return_type>;
 

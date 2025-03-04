@@ -16,16 +16,16 @@ TUBS_SYSTEM_DEPS += libmnl-dev:amd64
 TUBS_SYSTEM_DEPS += zlib1g-dev:amd64 libarchive-dev:amd64
 TUBS_DPKG_ARCH = amd64
 
-CPPFLAGS_DEBUG = -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
-CFLAGS_DEBUG = -Og -g2 -O0 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -fPIE
-CXXFLAGS_DEBUG = -Og -g2 -O0 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -std=c++20 -fPIE
+CPPFLAGS_DEBUG = -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-unused-value -Wno-unused-label -Wno-unused-result -Wno-unused-local-typedefs -Wno-analyzer-use-of-uninitialized-value
+CFLAGS_DEBUG = -Og -g2 -O0 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -fPIE -Wall -Wextra -pedantic -Wno-analyzer-use-of-uninitialized-value
+CXXFLAGS_DEBUG = -Og -g2 -O0 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -std=c++20 -fPIE -Wall -Wextra -pedantic -Wno-analyzer-use-of-uninitialized-value
 DEFINES_DEBUG = -DUNIX -D_GNU_SOURCE
 LDFLAGS_DEBUG = -pie
 EXTRA_SYSTEM_LIBS_DEBUG = -lbsd
 
-CPPFLAGS_RELEASE = -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64
-CFLAGS_RELEASE = -O2 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -fPIE
-CXXFLAGS_RELEASE = -O2 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -std=c++20 -fPIE
+CPPFLAGS_RELEASE = -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-unused-value -Wno-unused-label -Wno-unused-result -Wno-unused-local-typedefs
+CFLAGS_RELEASE = -O2 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -fPIE -Wall -Wextra -pedantic
+CXXFLAGS_RELEASE = -O2 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -std=c++20 -fPIE -Wall -Wextra -pedantic
 DEFINES_RELEASE = -DUNIX -D_GNU_SOURCE
 LDFLAGS_RELEASE = -pie 
 EXTRA_SYSTEM_LIBS_RELEASE = -lbsd
