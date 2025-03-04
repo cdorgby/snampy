@@ -150,7 +150,7 @@ enum io_buf_pack_type
  * 2. Offset Tracking: Each sub-buffer maintains its own offset (_buf_offset) relative to 
  *    the parent buffer's data. The original offset is preserved in _buf_offset_orig.
  *
- * 3. Parent-Child Relationship: A reference to the parent buffer is stored in _parent.
+ * 3. Parent-Child Relationship: A reference to the parent buffer is stored in parent_.
  *    When a top-level buffer is created, it becomes its own parent.
  *
  * 4. Buffer Adjustment: The adjust_offset() method allows parent buffers to update their
@@ -181,7 +181,7 @@ class io_buf
      *
      * @param size Size of the buffer in bytes.
      */
-    io_buf(size_t size) : _parent(*this), _buf(std::make_shared<std::vector<char>>(size)), _buf_size(size)
+    io_buf(size_t size) : parent_(*this), _buf(std::make_shared<std::vector<char>>(size)), _buf_size(size)
     {
     }
 
@@ -189,7 +189,7 @@ class io_buf
      * @brief Create a new sub io_buf buffer from an existing buffer.
      */
     io_buf(io_buf &buf, off_t offset, size_t size)
-    : _parent(buf), _buf(buf._buf), _buf_size(size), _buf_offset(offset), _buf_offset_orig(offset)
+    : parent_(buf), _buf(buf._buf), _buf_size(size), _buf_offset(offset), _buf_offset_orig(offset)
     {
     }
 
@@ -197,12 +197,13 @@ class io_buf
      * @brief Copy constructor.
      */
     io_buf(const io_buf &buf)
-    : _parent(buf._parent),
+    : parent_(buf.parent_),
       _buf(buf._buf),
       _buf_size(buf._buf_size),
       _buf_len(buf._buf_len),
       _buf_offset(buf._buf_offset),
-      _buf_offset_orig(buf._buf_offset_orig)
+      _buf_offset_orig(buf._buf_offset_orig),
+      _overrun_flag(buf._overrun_flag)
     {
     }
 
@@ -210,12 +211,13 @@ class io_buf
      * @brief Move constructor.
      */
     io_buf(io_buf &&buf)
-    : _parent(buf._parent),
+    : parent_(buf.parent_),
       _buf(std::move(buf._buf)),
       _buf_size(buf._buf_size),
       _buf_len(buf._buf_len),
       _buf_offset(buf._buf_offset),
-      _buf_offset_orig(buf._buf_offset_orig)
+      _buf_offset_orig(buf._buf_offset_orig),
+      _overrun_flag(buf._overrun_flag)
     {
         buf._buf = std::make_shared<std::vector<char>>(buf._buf_size);
     }
@@ -230,6 +232,7 @@ class io_buf
         _buf_len         = buf._buf_len;
         _buf_offset      = buf._buf_offset;
         _buf_offset_orig = buf._buf_offset_orig;
+        _overrun_flag    = buf._overrun_flag;
         return *this;
     }
 
@@ -238,11 +241,12 @@ class io_buf
      */
     io_buf &operator=(io_buf &&buf)
     {
-        _buf        = std::move(buf._buf);
-        _buf_size   = buf._buf_size;
-        _buf_len    = buf._buf_len;
-        _buf_offset = buf._buf_offset;
+        _buf             = std::move(buf._buf);
+        _buf_size        = buf._buf_size;
+        _buf_len         = buf._buf_len;
+        _buf_offset      = buf._buf_offset;
         _buf_offset_orig = buf._buf_offset_orig;
+        _overrun_flag    = buf._overrun_flag;
 
         buf._buf = std::make_shared<std::vector<char>>(buf._buf_size);
         return *this;
@@ -253,13 +257,23 @@ class io_buf
      */
     ~io_buf()
     {
-        if (&_parent == this)
+        if (&parent_ == this)
         {
             _buf->clear();
         }
     }
 
+    /**
+     * @brief Reset the buffer pointers.
+     */
     void reset(bool clear = false);
+
+    /**
+     * @brief Resize the buffer.
+     * 
+     * Can only resize if we own the buffer. (i.e. not a sub-buffer)
+     */
+    void resize(size_t size);
 
     /**
      * @brief Adjust the buffer's offset based on the child buffer's offset.
@@ -290,6 +304,16 @@ class io_buf
     auto writable() const
     {
         return _buf_size - _buf_len;
+    }
+
+    /**
+     * @brief Returns true if any write operation has attempted to write beyond the buffer's capacity.
+     * 
+     * The flag is cleared when the buffer is reset.
+     */
+    bool overrun() const
+    {
+        return _overrun_flag;
     }
 
     /**
@@ -366,20 +390,13 @@ class io_buf
     friend std::ostream &operator<<(std::ostream &os, const io_buf &buf);
 
   private:
-    io_buf &_parent; /**< Parent io_buf if this is a sub io_buf */
+    io_buf &parent_; /**< Parent io_buf if this is a sub io_buf */
     io_buf_container _buf;
     size_t _buf_size{0};       /**< Size of the buffer */
     size_t _buf_len{0};        /**< Number of bytes written to the buffer */
     off_t _buf_offset{0};      /**< Offset into the buffer. Will be 0 in the io_buf that created _buf */
     off_t _buf_offset_orig{0}; /**< offset that the buffer was created with */
-
-    // Added assertions to catch buffer overflows in debug builds
-    #ifndef NDEBUG
-    #define IO_BUF_ASSERT_BOUNDS(cond, msg) \
-        if (!(cond)) { throw std::out_of_range(msg); }
-    #else
-    #define IO_BUF_ASSERT_BOUNDS(cond, msg)
-    #endif
+    bool _overrun_flag{false}; /**< Flag indicating if a write operation has attempted to write beyond buffer capacity */
 };
 
 } // namespace io

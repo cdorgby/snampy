@@ -24,6 +24,7 @@ void io_buf::reset(bool clear)
 {
     _buf_len = 0;
     _buf_offset = _buf_offset_orig;
+    _overrun_flag = false;  // Clear the overrun flag on reset
 
     if (clear)
     {
@@ -31,9 +32,30 @@ void io_buf::reset(bool clear)
     }
 }
 
+void io_buf::resize(size_t size)
+{
+    // can only resize if we own the buffer
+    if (&parent_ != this)
+    {
+        return;
+    }
+
+    if (_buf->size() < size)
+    {
+        _buf->resize(size);
+    }
+    _buf_size = size;
+
+    // adjust offset if it's out of bounds
+    if (_buf_offset + _buf_len > _buf_size)
+    {
+        _buf_offset = _buf_size - _buf_len;
+    }
+}
+
 void io_buf::adjust_offset(const io_buf &other)
 {
-    if (&_parent == this)
+    if (&parent_ == this)
     {
         if (other._buf_offset + other._buf_len > _buf_len)
         {
@@ -129,8 +151,15 @@ size_t io_buf::write(std::string_view data, off_t offset, bool advance)
         return 0;
     }
 
-    size_t len = std::min(data.size(), _buf_size - static_cast<size_t>(offset));
-    IO_BUF_ASSERT_BOUNDS(len <= data.size(), "Buffer overflow in write()");
+    size_t requested_len = data.size();
+    size_t available_len = _buf_size - static_cast<size_t>(offset);
+    
+    // Check for potential overrun
+    if (requested_len > available_len) {
+        _overrun_flag = true;
+    }
+    
+    size_t len = std::min(requested_len, available_len);
     
     memcpy(_buf->data() + _buf_offset + offset, data.data(), len);
 
@@ -288,17 +317,18 @@ size_t io_buf::write8(uint8_t value, off_t offset, bool advance)
         return 0;
     }
 
+    // Check if we're trying to write past the buffer size
     if (offset + 1ULL > _buf_size)
     {
+        _overrun_flag = true;  // Set the overrun flag
         return 0;
     }
 
     *reinterpret_cast<uint8_t *>(_buf->data() + _buf_offset + offset) = value;
 
-    if (advance && static_cast<size_t>(offset) + 1ULL >= _buf_len)
+    if (advance && static_cast<size_t>(offset) + 1ULL > _buf_len)
     {
-        auto advance_len = static_cast<size_t>(offset) + 1ULL - _buf_len;
-        _buf_len += advance_len;
+        _buf_len = static_cast<size_t>(offset) + 1ULL;
     }
 
     return 1;
@@ -313,8 +343,10 @@ size_t io_buf::write16(uint16_t value, off_t offset, bool advance)
         return 0;
     }
 
+    // Check if we're trying to write past the buffer size
     if (offset + 2ULL > _buf_size)
     {
+        _overrun_flag = true;  // Set the overrun flag
         return 0;
     }
 
@@ -325,10 +357,9 @@ size_t io_buf::write16(uint16_t value, off_t offset, bool advance)
     // Write directly to memory
     memcpy(ptr, &network_value, sizeof(network_value));
 
-    if (advance && static_cast<size_t>(offset) + 2ULL >= _buf_len)
+    if (advance && static_cast<size_t>(offset) + 2ULL > _buf_len)
     {
-        auto advance_len = static_cast<size_t>(offset) + 2ULL - _buf_len;
-        _buf_len += advance_len;
+        _buf_len = static_cast<size_t>(offset) + 2ULL;
     }
 
     return 2;
@@ -343,8 +374,10 @@ size_t io_buf::write32(uint32_t value, off_t offset, bool advance)
         return 0;
     }
 
+    // Check if we're trying to write past the buffer size
     if (offset + 4ULL > _buf_size)
     {
+        _overrun_flag = true;  // Set the overrun flag
         return 0;
     }
 
@@ -355,10 +388,9 @@ size_t io_buf::write32(uint32_t value, off_t offset, bool advance)
     // Write directly to memory
     memcpy(ptr, &network_value, sizeof(network_value));
 
-    if (advance && static_cast<size_t>(offset) + 4ULL >= _buf_len)
+    if (advance && static_cast<size_t>(offset) + 4ULL > _buf_len)
     {
-        auto advance_len = static_cast<size_t>(offset) + 4ULL - _buf_len;
-        _buf_len += advance_len;
+        _buf_len = static_cast<size_t>(offset) + 4ULL;
     }
 
     return 4;
@@ -367,7 +399,14 @@ size_t io_buf::write32(uint32_t value, off_t offset, bool advance)
 size_t io_buf::write64(uint64_t value, off_t offset, bool advance)
 {
     offset = normalize_write_offset(offset);
-    if (offset < 0 || offset + 8ULL > _buf_size) {
+    if (offset < 0) {
+        return 0;
+    }
+
+    // Check if we're trying to write past the buffer size
+    if (offset + 8ULL > _buf_size)
+    {
+        _overrun_flag = true;  // Set the overrun flag
         return 0;
     }
 
@@ -378,10 +417,9 @@ size_t io_buf::write64(uint64_t value, off_t offset, bool advance)
     // Write directly to memory
     memcpy(ptr, &network_value, sizeof(network_value));
 
-    if (advance && static_cast<size_t>(offset) + 8ULL >= _buf_len)
+    if (advance && static_cast<size_t>(offset) + 8ULL > _buf_len)
     {
-        auto advance_len = static_cast<size_t>(offset) + 8ULL - _buf_len;
-        _buf_len += advance_len;
+        _buf_len = static_cast<size_t>(offset) + 8ULL;
     }
 
     return 8;

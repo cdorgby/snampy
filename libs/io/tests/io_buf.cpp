@@ -520,3 +520,69 @@ TEST_CASE("iobuf memory safety", "[io_buffer]")
     }
 }
 
+// Add tests for the new overrun flag functionality
+TEST_CASE("iobuf overrun flag", "[iobuf]") {
+    SECTION("write8 sets overrun flag") {
+        io_buf buf(10);
+        // Fill up the buffer
+        for (int i = 0; i < 10; i++) {
+            REQUIRE(buf.write8(0x42 + i) == 1);
+        }
+        // This write should fail and set the overrun flag
+        REQUIRE(buf.write8(0x4C) == 0);
+        REQUIRE(buf.overrun() == true);
+        
+        // Reset should clear the flag
+        buf.reset();
+        REQUIRE(buf.overrun() == false);
+    }
+
+    SECTION("write16 sets overrun flag") {
+        io_buf buf(9); // Use a 9-byte buffer instead of 10
+        // Fill most of the buffer
+        REQUIRE(buf.write16(0x1234) == 2);
+        REQUIRE(buf.write16(0x5678) == 2);
+        REQUIRE(buf.write16(0x9ABC) == 2);
+        REQUIRE(buf.write16(0xDEF0) == 2); // This will fill to offset 8
+        // This write should attempt to write beyond the buffer limit and set the flag
+        REQUIRE(buf.write16(0x1234) == 0); // Should fail since we need 2 bytes but only have 1
+        REQUIRE(buf.overrun() == true);
+    }
+
+    SECTION("write32 sets overrun flag") {
+        io_buf buf(10);
+        REQUIRE(buf.write32(0x12345678) == 4);
+        REQUIRE(buf.write32(0x9ABCDEF0) == 4);
+        // This should attempt to write 4 bytes but only 2 are available
+        REQUIRE(buf.write32(0x12345678) == 0);
+        REQUIRE(buf.overrun() == true);
+    }
+
+    SECTION("write64 sets overrun flag") {
+        io_buf buf(10);
+        // This just fits
+        REQUIRE(buf.write64(0x123456789ABCDEF0ULL) == 8);
+        // This won't fit
+        REQUIRE(buf.write64(0x123456789ABCDEF0ULL) == 0);
+        REQUIRE(buf.overrun() == true);
+    }
+
+    SECTION("write with offset sets overrun flag") {
+        io_buf buf(10);
+        // Write beyond available space
+        REQUIRE(buf.write("test", 4, 7) == 3); // Only 3 bytes should fit
+        REQUIRE(buf.overrun() == true);
+    }
+
+    SECTION("reset clears overrun flag") {
+        io_buf buf(5);
+        // Cause an overrun
+        REQUIRE(buf.write("toolong", 7) == 5); // Only 5 bytes should fit
+        REQUIRE(buf.overrun() == true);
+        
+        // Reset should clear the flag
+        buf.reset();
+        REQUIRE(buf.overrun() == false);
+    }
+}
+
