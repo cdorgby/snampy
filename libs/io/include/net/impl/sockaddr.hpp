@@ -1,6 +1,6 @@
 #pragma once
 
-#include <net/sockaddr_def.hpp>
+#include <net/def/sockaddr.hpp>
 
 namespace io
 {
@@ -845,6 +845,8 @@ size_t hash<io::sock_addr>::operator()(const io::sock_addr &addr) const noexcept
     {
         const auto &sin = reinterpret_cast<const sockaddr_in &>(*addr.sockaddr());
         h               = std::hash<uint32_t>{}(sin.sin_addr.s_addr);
+        // Combine the port hash with the address hash using a variant of FNV-1a hash algorithm
+        // 0x9e3779b9 is derived from the golden ratio and helps distribute hash values
         h ^= std::hash<uint16_t>{}(sin.sin_port) + 0x9e3779b9 + (h << 6) + (h >> 2);
         break;
     }
