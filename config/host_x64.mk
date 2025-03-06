@@ -19,7 +19,7 @@ TUBS_DPKG_ARCH = amd64
 CPPFLAGS_DEBUG = -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-unused-value -Wno-unused-label -Wno-unused-result -Wno-unused-local-typedefs -Wno-analyzer-use-of-uninitialized-value
 CFLAGS_DEBUG = -Og -g2 -O0 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -fPIE -Wall -Wextra -pedantic -Wno-analyzer-use-of-uninitialized-value
 CXXFLAGS_DEBUG = -Og -g2 -O0 -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -std=c++20 -fPIE -Wall -Wextra -pedantic -Wno-analyzer-use-of-uninitialized-value
-DEFINES_DEBUG = -DUNIX -D_GNU_SOURCE
+DEFINES_DEBUG = -DUNIX -D_GNU_SOURCE -DDEBUG
 LDFLAGS_DEBUG = -pie
 EXTRA_SYSTEM_LIBS_DEBUG = -lbsd
 

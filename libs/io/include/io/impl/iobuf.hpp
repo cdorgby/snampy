@@ -55,11 +55,17 @@ void io_buf::resize(size_t size)
 
 void io_buf::adjust_offset(const io_buf &other)
 {
+    // Only adjust length of a parent buffer based on child
     if (&parent_ == this)
     {
-        if (other._buf_offset + other._buf_len > _buf_len)
+        // Calculate the child's absolute end position relative to this buffer
+        size_t child_offset_relative = other._buf_offset - _buf_offset;
+        size_t child_end_pos = child_offset_relative + other._buf_len;
+        
+        // Extend our readable length if the child has written beyond our current end
+        if (child_end_pos > _buf_len)
         {
-            _buf_len = other._buf_offset + other._buf_len;
+            _buf_len = child_end_pos;
         }
     }
 }
@@ -425,64 +431,84 @@ size_t io_buf::write64(uint64_t value, off_t offset, bool advance)
     return 8;
 }
 
-std::ostream &operator<<(std::ostream &os, const io_buf &buf)
+std::string io_buf::to_string() const
 {
+    std::stringstream os;
     std::ios_base::fmtflags original_flags(os.flags());
-    os << std::hex << std::setfill('0');
-
-    const char* data = buf.read_ptr();
-    size_t len = buf.readable();
     
-    // Use std::string_view for line comparison to avoid string copies
-    using namespace detail;
+    const char* data = read_ptr();
+    size_t len = readable();
+    
+    using namespace io::detail;
     
     bool last_line_same = false;
-    std::string_view last_line;
-    std::string current_line_buf;  // Buffer for current line
+    std::string last_line_content;  // Store content without the offset
     
     os << "len: " << len << "\n";
     
+    // Set hex formatting here before any hex output
+    os << std::hex << std::setfill('0');
+    
     for (size_t offset = 0; offset < len; offset += BYTES_PER_LINE) {
+        // First, build the content for comparison (without offsets)
         std::stringstream current_line;
         
-        current_line << std::setw(8) << offset << "  ";
-
-        for (size_t i = 0; i < BYTES_PER_LINE; i++) {
-            if (i == 8) {
-                current_line << " ";
-            }
-            if (offset + i < len) {
-                current_line << std::hex << std::setw(BYTE_DISPLAY_WIDTH) << std::setfill('0')
-                             << static_cast<unsigned>(static_cast<unsigned char>(data[offset + i])) << " ";
-            } else {
-                current_line << "   ";
+        // Check if this line has the same content as the previous one
+        bool is_duplicate = false;
+        if (offset > 0) {  // Skip the first line check
+            // Compare the raw bytes between this line and the previous line
+            size_t bytes_to_check = std::min(BYTES_PER_LINE, len - offset);
+            size_t prev_bytes = std::min(BYTES_PER_LINE, std::min(len - (offset - BYTES_PER_LINE), (size_t)BYTES_PER_LINE));
+            
+            if (bytes_to_check == prev_bytes && 
+                memcmp(data + offset, data + offset - BYTES_PER_LINE, bytes_to_check) == 0) {
+                is_duplicate = true;
             }
         }
-
-        current_line << " |";
-        for (size_t i = 0; i < BYTES_PER_LINE && (offset + i) < len; i++) {
-            unsigned char c = data[offset + i];
-            current_line << (is_printable(c) ? static_cast<char>(c) : UNPRINTABLE_CHAR);
-        }
-        current_line << "|\n";
-
-        std::string current_line_str = current_line.str();
-        if (offset > 0 && current_line_str == last_line && offset + BYTES_PER_LINE < len) {
+        
+        if (is_duplicate) {
+            // This line has the same content as the previous line
             if (!last_line_same) {
                 os << "*\n";
                 last_line_same = true;
             }
         } else {
-            os << current_line_str;
-            last_line = current_line_str;
+            // This line is different, format and output it
+            std::stringstream current_line;
+            current_line << std::hex << std::setfill('0');
+            current_line << std::setw(8) << offset << "  ";
+
+            // Write hex values with proper spacing
+            for (size_t i = 0; i < BYTES_PER_LINE; i++) {
+                if (i == 8) {
+                    current_line << " ";
+                }
+                
+                if (offset + i < len) {
+                    current_line << std::setw(BYTE_DISPLAY_WIDTH)
+                              << static_cast<unsigned>(static_cast<unsigned char>(data[offset + i])) << " ";
+                } else {
+                    current_line << "   ";  // 3 spaces for each missing byte
+                }
+            }
+
+            // Add ASCII representation
+            current_line << " |";  // Add extra space before the pipe
+            for (size_t i = 0; i < BYTES_PER_LINE && (offset + i) < len; i++) {
+                unsigned char c = static_cast<unsigned char>(data[offset + i]);
+                current_line << (is_printable(c) ? static_cast<char>(c) : UNPRINTABLE_CHAR);
+            }
+            current_line << "|";
+            
+            os << current_line.str() << "\n";
             last_line_same = false;
         }
     }
 
-    os << std::setw(8) << len << "\n";
-
     os.flags(original_flags);
-    return os;
+    return os.str();
 }
 
 } // namespace io
+
+

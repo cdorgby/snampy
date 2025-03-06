@@ -187,10 +187,31 @@ class io_buf
 
     /**
      * @brief Create a new sub io_buf buffer from an existing buffer.
+     *
+     * This constructor creates a view into a portion of an existing buffer.
+     * The created sub-buffer shares the same underlying memory as the parent.
+     * 
+     * @param buf The parent buffer to create a sub-buffer from
+     * @param offset Offset from the start of the parent's readable data
+     * @param size Maximum size of the sub-buffer
      */
     io_buf(io_buf &buf, off_t offset, size_t size)
-    : parent_(buf), _buf(buf._buf), _buf_size(size), _buf_offset(offset), _buf_offset_orig(offset)
+    : parent_(buf), 
+      _buf(buf._buf), 
+      _buf_size(size), 
+      _buf_offset(buf._buf_offset + offset),  // Add parent's offset to this buffer's offset
+      _buf_offset_orig(buf._buf_offset + offset)  // Store original offset with parent's offset included
     {
+        // Ensure we don't exceed the parent's buffer
+        // Fix for signedness warning - cast offset to size_t for comparison
+        if (offset >= 0 && static_cast<size_t>(offset) + size > buf.size()) {
+            _buf_size = static_cast<size_t>(offset) < buf.size() ? 
+                         buf.size() - static_cast<size_t>(offset) : 0;
+        }
+        else if (offset < 0) {
+            // Handle negative offsets safely
+            _buf_size = 0;
+        }
     }
 
     /**
@@ -387,7 +408,7 @@ class io_buf
     template <typename T> size_t unpack_type(T &value, off_t offset = 0, bool advance = true);
     template <typename T> size_t unpack_size(T &value, off_t offset = 0, bool advance = true);
 
-    friend std::ostream &operator<<(std::ostream &os, const io_buf &buf);
+    std::string to_string() const;
 
   private:
     io_buf &parent_; /**< Parent io_buf if this is a sub io_buf */
