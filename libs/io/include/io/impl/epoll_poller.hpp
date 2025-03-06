@@ -78,18 +78,25 @@ epoll_poller::~epoll_poller() = default;
     for (int i = 0; i < num_events; ++i) {
         if (auto *w = static_cast<io_waiter *>(events[i].data.ptr))
         {
-            if (events[i].events & EPOLLIN) {
+            int type = io_desc_type::none;
+
+            if (events[i].events & EPOLLIN)
+            {
                 LOG(trace) << "EPOLLIN";
-                w->complete(io_result::done);
+                type = io_desc_type::read;
             }
-            else if (events[i].events & EPOLLOUT) {
+
+            if (events[i].events & EPOLLOUT) {
                 LOG(trace) << "EPOLLOUT";
-                w->complete(io_result::done);
+                type += io_desc_type::write;
             }
-            else {
+
+            if (type == io_desc_type::none)
+            {
                 LOG(error) << "Unknown event: ";
-                w->complete(io_result::error);
             }
+
+            w->ready_ = static_cast<io::detail::io_desc_type>(type);
             ready_waiters.push_back(w);
         }
     }
@@ -118,7 +125,11 @@ void epoll_poller::add_waiter(io_waiter *waiter)
     else if (waiter->type() == io_desc_type::write) { ev.events = EPOLLOUT; }
     else if (waiter->type() == io_desc_type::both) { ev.events = EPOLLIN | EPOLLOUT; }
 
-    if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, waiter->fd(), &ev) == -1) { LOG(error) << "Failed to add waiter to epoll"; }
+    if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, waiter->fd(), &ev) == -1)
+    {
+        LOG(error) << "wfd: " << waiter->fd() << " Failed to add waiter to epoll, errno: " << errno << " "
+                   << std::string(strerror(errno));
+    }
 }
 
 void epoll_poller::remove_waiter(io_waiter *waiter)
@@ -180,7 +191,7 @@ void epoll_poller::wake()
         return;
     }
 
-    if (write(event_fd_.get(), &val, sizeof(val)) == -1) {
+    if (::write(event_fd_.get(), &val, sizeof(val)) == -1) {
         LOG(error) << "Failed to write to eventfd";
     }
 }

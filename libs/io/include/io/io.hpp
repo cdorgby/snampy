@@ -3,6 +3,7 @@
 #include <io/common.hpp>
 #include <io/io_loop.hpp>
 #include <io/waiter.hpp>
+#include <io/promise.hpp>
 #include <io/iotask.hpp>
 #include <io/iobuf.hpp>
 #include <io/ioops.hpp>

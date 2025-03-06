@@ -36,7 +36,7 @@ bool io_loop_basic<poller_type>::schedule(io_task &&task, std::string id)
         tasks_.emplace_back(std::move(task));
         handle = tasks_.back().handle();
 
-        LOG(debug) << "Scheduled new task " << id << " with handle " << handle.address();
+        LOG(trace) << "Scheduled new task " << id << " with handle " << handle.address();
     }
 
     // check if the task is already scheduled
@@ -85,16 +85,15 @@ int io_loop_basic<poller_type>::step()
 
     // Process finished tasks in order they completed
     if (!finished.empty()) {
-        LOG(debug) << "Cleaning up " << finished.size() << " finished tasks";
-        
+        LOG(trace) << "Cleaning up " << finished.size() << " finished tasks";
+
         for (auto handle : finished) {
             if (!handle) continue;
             
             // Find and remove from tasks_ vector if present
             for (auto it = tasks_.begin(); it != tasks_.end(); ++it) {
                 if (it->handle() == handle) {
-                    LOG(debug) << "Destroying task " << it->task_id() 
-                              << " with handle " << handle.address();
+                    LOG(trace) << "Destroying task " << it->task_id() << " with handle " << handle.address();
                     tasks_.erase(it);
                     break;
                 }
@@ -156,7 +155,7 @@ void io_loop_basic<poller_type>::run()
     {
         step();
 
-        LOG(debug) << "Tasks: " << tasks_.size() << ", Scheduled: " << scheduled_.size() << ", Waiters: " << waiters_.size();
+        LOG(trace) << "Tasks: " << tasks_.size() << ", Scheduled: " << scheduled_.size() << ", Waiters: " << waiters_.size();
         // Check if we're done - all tasks completed AND no more waiters
         if (tasks_.empty() && scheduled_.empty() && waiters_.empty())
         {
@@ -170,11 +169,11 @@ void io_loop_basic<poller_type>::run()
 
         if (timeout == time_ticks_t::max())
         {
-            LOG(debug) << "No timeout";
+            LOG(trace) << "No timeout";
         }
         else
         {
-            LOG(debug) << "Next timeout: " << timeout.count() << "us";
+            LOG(trace) << "Next timeout: " << timeout.count() << "us";
         }
         poller_.poll(timeout, ready_waiters);
 
@@ -187,7 +186,6 @@ void io_loop_basic<poller_type>::run()
             // If waiter has a timeout and it's already passed or less than 1ms remains
             if ((*it)->complete_by_ != time_point_t::max() && ((*it)->complete_by_ - now < std::chrono::milliseconds(1)))
             {
-                (*it)->result_ = io_result::timeout;
                 ready_waiters.emplace_back(*it);
                 LOG(trace) << "waiter timeout";
             }
@@ -248,15 +246,70 @@ template <typename poller_type> void io_loop_basic<poller_type>::remove_waiter(i
 template <typename poller_type>
 bool io_loop_basic<poller_type>::process_ready_waiters(std::vector<io_waiter *> &ready_waiters)
 {
+    LOG(trace) << "Processing " << ready_waiters.size() << " ready waiters";
+    
     for (auto it = ready_waiters.begin(); it != ready_waiters.end(); ++it)
     {
         io_waiter *waiter = *it;
 
-        if (waiter->result() == io_result::waiting) { continue; }
-        waiter->complete(waiter->result());
+        if (waiter->result() != io_result::waiting) 
+        { 
+            LOG(trace) << "Skipping waiter with result " << static_cast<int>(waiter->result());
+            continue; 
+        } // somebody else already completed this waiter
+
+        // ready set to none means timeout
+        if (waiter->ready() == io_desc_type::none) 
+        { 
+            LOG(trace) << "Waiter timed out, completing with timeout";
+            waiter->complete(io_result::timeout); 
+        }
+        else
+        {
+            LOG(trace) << "Waiter is ready with type " << static_cast<int>(waiter->ready());
+            
+            if (waiter->promise_)
+            {
+                LOG(trace) << "Waiter has promise, checking ready state";
+                // promise wants to complete or still wants to wait some more
+                if (waiter->promise_->check_ready())
+                {
+                    // handle propogation of the result
+                    if (waiter->promise_->check_closed()) 
+                    { 
+                        LOG(trace) << "Promise closed, completing with closed";
+                        waiter->complete(io_result::closed); 
+                    }
+                    else if (waiter->promise_->has_error()) 
+                    { 
+                        LOG(trace) << "Promise has error, completing with error";
+                        waiter->complete(io_result::error); 
+                    }
+                    else 
+                    { 
+                        LOG(trace) << "Promise completed successfully";
+                        waiter->complete(io_result::done); 
+                    }
+                }
+                else
+                {
+                    LOG(trace) << "Promise not ready yet";
+                }
+            }
+            else
+            {
+                // No promise, just complete the waiter
+                LOG(trace) << "Waiter has no promise, completing with done";
+                waiter->complete(io_result::done);
+            }
+        }
+
+        waiter->clear_ready();
+        LOG(trace) << "Cleared ready state for waiter";
     }
 
     ready_waiters.clear();
+    LOG(trace) << "Cleared ready waiters list";
 
     return true;
 }

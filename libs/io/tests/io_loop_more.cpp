@@ -137,7 +137,8 @@ TEST_CASE("Error handling for complex operation chains", "[io_loop]") {
         // Simulate a system error
         auto p = io_promise{loop, time_now() + std::chrono::seconds(1)};
         errno = ECONNREFUSED;
-        p.waiter_.complete(io_result::error, system_error());
+        p.waiter_.promise_->set_error(std::error_code(errno, std::system_category()));
+        p.waiter_.complete(io_result::error);
         
         auto result = co_await p;
         REQUIRE(result == io_result::error);

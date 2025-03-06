@@ -31,9 +31,18 @@ enum class io_loop_state
     shutdown,     //!< The loop has stopped and is shut down. It cannot be restarted.
 };
 
+/**
+ * @brief I/O loop implementation.
+ * 
+ * This class is the core of the I/O loop. It is responsible for scheduling and running tasks, polling for I/O events,
+ * handling timeouts, managing waiters, and notifying those waiters of those I/O events/timouts.
+ */
 template <typename poller_type>
 class io_loop_basic
 {
+  private:
+    static constexpr size_t INITIAL_CAPACITY = 64;
+
   public:
     io_loop_basic() {
         tasks_.reserve(INITIAL_CAPACITY);
@@ -89,7 +98,6 @@ class io_loop_basic
   private:
     poller_type poller_;
     io_loop_state state_ = io_loop_state::stopped;
-    static constexpr size_t INITIAL_CAPACITY = 64;
     std::vector<io_task> tasks_;
     std::vector<std::coroutine_handle<>> scheduled_;
     std::vector<io_waiter *> waiters_;

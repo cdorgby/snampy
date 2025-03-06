@@ -7,25 +7,12 @@
 namespace io {
 namespace detail {
 
-bool io_waiter::complete(io_result result, std::error_code ec) noexcept
+bool io_waiter::complete(io_result result) noexcept
 {
-    // Only create error codes when absolutely necessary
-    const bool is_error_result = (result != io_result::done && result != io_result::waiting);
-
-    // Fast path: avoid memory fence if result hasn't changed
-    if (result_ != result) { result_ = result; }
-
     // Once we're no longer waiting, ensure we get removed from the I/O loop
     const bool should_remove_from_loop = (result != io_result::waiting);
 
-    // Update error_ field in the promise when error occurs
-    if (is_error_result && promise_ && ec.value() != 0) { promise_->set_error(ec); }
-
-    // Always log completions for debugging
-    if (is_error_result || result == io_result::done)
-    {
-        if (ec.value() == 0 && is_error_result) { ec = result_to_error(result); }
-    }
+    result_ = result;
 
     // Execute callback if set
     if (callback_) { callback_(result, this); }
@@ -33,51 +20,45 @@ bool io_waiter::complete(io_result result, std::error_code ec) noexcept
     // Handle parent waiter
     if (awaiting_waiter_)
     {
-        // For io_wait_for_all_promise, we need to decrement its completion count 
+        // For io_wait_for_all_promise, we need to decrement its completion count
         // but only proceed to complete it when completion_count_ reaches 0
-        if (result != io_result::waiting) {
+        if (result != io_result::waiting)
+        {
             // For io_wait_for_any_promise, complete the parent immediately with the first completion
             bool complete_parent = true;
-            
+
             // Only check completion count if it's greater than 1 (wait-for-all behavior)
-            if (awaiting_waiter_->completion_count_ > 1) {
+            if (awaiting_waiter_->completion_count_ > 1)
+            {
                 // Atomically decrement the parent's completion count and check if it's zero
                 complete_parent = (--awaiting_waiter_->completion_count_ == 0);
             }
-            
-            // Complete the parent waiter if conditions are met
-            if (complete_parent) {
-                awaiting_waiter_->complete(io_result::done, ec);
-            }
-        }
 
-        // Parent waiter will handle removal, we're done
-        return should_remove_from_loop;
+            // Complete the parent waiter if conditions are met
+            if (complete_parent) { awaiting_waiter_->complete(io_result::done); }
+        }
     }
     else if (awaiting_coroutine_)
     {
         // Decrement completion count for ANY final state (not just done)
-        if (result != io_result::waiting) { 
-            completion_count_--; 
-            LOG(debug) << "Decremented completion count to " << completion_count_;
+        if (result != io_result::waiting)
+        {
+            completion_count_--;
+            LOG(trace) << "Decremented completion count to " << completion_count_;
         }
 
         // Schedule coroutine when:
         // 1. All required waiters have completed or
         // 2. Any non-success result occurred and we're not already scheduled
-        const bool should_schedule = (completion_count_ == 0) ||
-                                    (result_ != io_result::waiting && !scheduled_);
+        const bool should_schedule = (completion_count_ == 0) || (result_ != io_result::waiting && !scheduled_);
 
         if (should_schedule && !scheduled_)
         {
-            LOG(debug) << "Scheduling coroutine with result=" << to_string(result) 
-                      << ", completion_count=" << completion_count_;
+            LOG(trace) << "Scheduling coroutine with result=" << to_string(result) << ", completion_count=" << completion_count_;
             loop_.schedule(awaiting_coroutine_);
-            scheduled_ = true;
+            scheduled_          = true;
             awaiting_coroutine_ = nullptr;
         }
-
-        return should_remove_from_loop;
     }
 
     return should_remove_from_loop;

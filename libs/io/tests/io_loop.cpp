@@ -374,7 +374,7 @@ TEST_CASE("io_loop_basic read write operations", "[io_loop]") {
         auto result = co_await write_promise;
         REQUIRE(result == io_result::done);
         
-        auto bytes_written = write(pipefd[1], test_data, strlen(test_data));
+        auto bytes_written = ::write(pipefd[1], test_data, strlen(test_data));
         REQUIRE(bytes_written == strlen(test_data));
         write_completed = true;
         co_return;
@@ -386,7 +386,7 @@ TEST_CASE("io_loop_basic read write operations", "[io_loop]") {
         auto result = co_await read_promise;
         REQUIRE(result == io_result::done);
         
-        auto bytes_read = read(pipefd[0], read_buffer, sizeof(read_buffer));
+        auto bytes_read = ::read(pipefd[0], read_buffer, sizeof(read_buffer));
         REQUIRE(bytes_read == strlen(test_data));
         REQUIRE(strcmp(read_buffer, test_data) == 0);
         read_completed = true;
@@ -425,7 +425,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
         auto result = co_await write_promise;
         REQUIRE(result == io_result::done);
         
-        auto bytes_written = write(sockets[0], msg1, strlen(msg1));
+        auto bytes_written = ::write(sockets[0], msg1, strlen(msg1));
         REQUIRE(bytes_written == strlen(msg1));
         completed_ops++;
 
@@ -435,7 +435,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
         result = co_await read_promise;
         REQUIRE(result == io_result::done);
         
-        auto bytes_read = read(sockets[0], buffer1, sizeof(buffer1));
+        auto bytes_read = ::read(sockets[0], buffer1, sizeof(buffer1));
         REQUIRE(bytes_read == strlen(msg2));
         REQUIRE(strcmp(buffer1, msg2) == 0);
         completed_ops++;
@@ -450,7 +450,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
         auto result = co_await read_promise;
         REQUIRE(result == io_result::done);
         
-        auto bytes_read = read(sockets[1], buffer2, sizeof(buffer2));
+        auto bytes_read = ::read(sockets[1], buffer2, sizeof(buffer2));
         REQUIRE(bytes_read == strlen(msg1));
         REQUIRE(strcmp(buffer2, msg1) == 0);
         completed_ops++;
@@ -461,7 +461,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
         result = co_await write_promise;
         REQUIRE(result == io_result::done);
         
-        auto bytes_written = write(sockets[1], msg2, strlen(msg2));
+        auto bytes_written = ::write(sockets[1], msg2, strlen(msg2));
         REQUIRE(bytes_written == strlen(msg2));
         completed_ops++;
 
@@ -671,8 +671,9 @@ TEST_CASE("Error handling with system error", "[error_handling]") {
     
     // Simulate a system error (EACCES - Permission denied)
     errno = EACCES;
-    promise.waiter_.complete(io_result::error, system_error());
-    
+    promise.set_error(system_error());
+    promise.waiter_.complete(io_result::error);
+
     // Verify error is set correctly
     REQUIRE(promise.has_error());
     REQUIRE(promise.error().value() == EACCES);
@@ -691,7 +692,8 @@ TEST_CASE("Error propagation in wait_for_any", "[error_handling]") {
     auto test_task = [&]() -> io_task {
         // Simulate error on p1
         errno = ECONNREFUSED;
-        p1.waiter_.complete(io_result::error, system_error());
+        p1.waiter_.promise_->set_error(system_error());
+        p1.waiter_.complete(io_result::error);
         
         // Wait for any promise to complete
         auto ready = co_await io_wait_for_any_promise{loop, time_now() + std::chrono::seconds(1), {&p1, &p2}};
