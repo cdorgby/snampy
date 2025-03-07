@@ -91,10 +91,10 @@ private:
     bool is_closed_ = false;
     
     // The mailbox reader class that implements the awaitable pattern
-    class mailbox_reader : public detail::io_promise {
+    class mailbox_reader : public detail::io_awaitable {
     public:
         mailbox_reader(io_mbox& mbox, io_loop& loop, time_point_t deadline)
-            : io_promise(loop, deadline), mbox_(&mbox) {}
+            : io_awaitable(loop, deadline), mbox_(&mbox) {}
         
         ~mailbox_reader() {
             // Make sure we're unregistered from the mailbox
@@ -130,7 +130,7 @@ private:
         }
         
         void await_suspend(std::coroutine_handle<> h) noexcept override {
-            io_promise::await_suspend(h);
+            io_awaitable::await_suspend(h);
         }
         
         std::optional<T> await_resume() noexcept {

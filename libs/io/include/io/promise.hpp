@@ -9,31 +9,31 @@ namespace io
 namespace detail
 {
 /**
- * @brief A promise that allows waiting for an I/O operation to complete.
- * 
- * This implements the awaitable pattern for I/O operations. The caller can co_await on this promise to wait for the
+ * @brief co_awaitable that waits for an I/O operation to complete.
+ *
+ * This implements the awaitable pattern for I/O operations. The caller can co_await on this object to wait for the
  * operation to complete.
- * 
- * Anybody that has access to the promise can reset it to wait for another operation to complet or cancel it.
+ *
+ * Anybody that has access to the awaitable can reset it to wait for another operation to complet or cancel it.
  * Cancellation is an immediate action and is meaningful only if the operation is still waiting.
- * 
+ *
  * This is meant to be used as a base class, if used directly it only allows waiting for a timeout
- * 
+ *
  * @note Error Handling: When an operation completes with io_result::error,
  * the error_ field will contain the specific error code. You can use error()
  * to access this information. For other result types like io_result::timeout,
  * the appropriate error code is also set automatically.
  */
-struct io_promise
+struct io_awaitable
 {
     io_waiter waiter_;
 
-    io_promise()                        = delete;
-    io_promise(const io_promise &) = delete;
+    io_awaitable()                        = delete;
+    io_awaitable(const io_awaitable &) = delete;
 
-    virtual ~io_promise() = default;
+    virtual ~io_awaitable() = default;
 
-    io_promise(io_loop &loop, time_point_t complete_by) noexcept : waiter_{loop, nullptr, this, complete_by} {}
+    io_awaitable(io_loop &loop, time_point_t complete_by) noexcept : waiter_{loop, nullptr, this, complete_by} {}
 
     [[nodiscard]] virtual bool await_ready() noexcept
     {
@@ -55,8 +55,9 @@ struct io_promise
 
     [[nodiscard]] io_result await_resume() noexcept
     {
-        // let the promise that we are about to resume and they should do any necessary cleanup
-        waiter_.promise_->completed();
+        // let us know that we are about to resume and they should do any necessary cleanup
+        completed();
+
         // Always remove from I/O loop when resuming
         waiter_.remove();
         
@@ -94,42 +95,39 @@ struct io_promise
     }
 
     /**
-     * @brief Returns the error code associated with this promise.
+     * @brief Returns the error code associated with this operation.
      * @return The error code, which is valid when result is io_result::error.
      */
-    [[nodiscard]] std::error_code error() const noexcept { 
+    [[nodiscard]] std::error_code error() const noexcept
+    {
         // If error is already set, return it
-        if (has_error()) {
-            return error_;
-        }
-        
+        if (has_error()) { return error_; }
+
         // Otherwise, generate an error code based on the result
         auto result = waiter_.result();
-        if (result != io_result::done && result != io_result::waiting) {
-            return result_to_error(result);
-        }
-        
+        if (result != io_result::done && result != io_result::waiting) { return result_to_error(result); }
+
         return {};
     }
-    
+
     /**
      * @brief Checks if an error has been set.
      * @return @e true if an error code is set, @e false otherwise.
      */
-    [[nodiscard]] bool has_error() const noexcept { 
-        return error_.value() != 0;
-    }
-    
-    /**
-     * @brief Sets the error code for this promise.
-     * @param ec The error code to set.
-     */
-    void set_error(std::error_code ec) noexcept {
-        error_ = ec;
-    }
+    [[nodiscard]] bool has_error() const noexcept { return error_.value() != 0; }
 
     /**
-     * @brief check if the operation associated with this promise is ready.
+     * @brief Sets the error code for this operation.
+     *
+     * This used to indicate an error condition for the operation and will be set if the operation result is not
+     * io_result::done.
+     *
+     * @param ec The error code to set.
+     */
+    void set_error(std::error_code ec) noexcept { error_ = ec; }
+
+    /**
+     * @brief check if the operation is ready.
      * 
      * This is a non-suspending version of await_ready. It checks if the operation is ready to be resumed. It called
      * from.
@@ -164,15 +162,14 @@ struct io_promise
 };
 
 /**
- * @brief A promise that allows waiting for an I/O descriptor to be ready for reading or writing.
  */
-struct io_desc_promise : public io_promise
+struct io_desc_awaitable : public io_awaitable
 {
-    io_desc_promise() = delete;
-    io_desc_promise(const io_desc_promise &) = delete;
+    io_desc_awaitable() = delete;
+    io_desc_awaitable(const io_desc_awaitable &) = delete;
 
-    io_desc_promise(io_loop &loop, int fd, io_desc_type type, time_point_t complete_by) noexcept
-    : io_promise{loop, complete_by}
+    io_desc_awaitable(io_loop &loop, int fd, io_desc_type type, time_point_t complete_by) noexcept
+    : io_awaitable{loop, complete_by}
     {
         waiter_.set_descriptor(fd, type);
     }
@@ -180,34 +177,37 @@ struct io_desc_promise : public io_promise
     void reset(int fd, io_desc_type type, time_point_t complete_by) noexcept
     {
         waiter_.set_descriptor(fd, type);
-        io_promise::reset(complete_by);
+        io_awaitable::reset(complete_by);
     }
 
     [[nodiscard]] int fd() const noexcept { return waiter_.fd(); }
     [[nodiscard]] io_desc_type type() const noexcept { return waiter_.type(); }
 
+    // Add accessors for error information
+    [[nodiscard]] const std::error_code &error() const noexcept { return error_; }
+
+    [[nodiscard]] bool has_error() const noexcept { return error_.value() != 0; }
+
+    [[nodiscard]] std::string error_message() const noexcept { return error_.message(); }
 };
 
 /**
- * @brief A promise that allows waiting for a set of promises to complete.
+ * @brief Wait for any of the awaitables to complete.
  *
- * This promise will wait for any of the promises to complete or for the specified time to pass before resuming the
- * awaiting coroutine.
- * 
- * The caller still needs to call co_await on the individual promises to get the results.
+ * The caller still needs to call co_await on the ready awaitables to get the results.
  */
-struct io_wait_for_any_promise : public io_promise
+struct io_wait_for_any : public io_awaitable
 {
-    io_wait_for_any_promise() = delete;
-    io_wait_for_any_promise(const io_wait_for_any_promise &) = delete;
+    io_wait_for_any() = delete;
+    io_wait_for_any(const io_wait_for_any &) = delete;
 
     // Change reference to pointer in initializer_list
-    io_wait_for_any_promise(io_loop &loop, time_point_t complete_by, std::initializer_list<io_promise *> promises) noexcept
-    : io_promise{loop, complete_by}
+    io_wait_for_any(io_loop &loop, time_point_t complete_by, std::initializer_list<io_awaitable *> awaitables) noexcept
+    : io_awaitable{loop, complete_by}
     {
-        for (auto *promise : promises)
+        for (auto *awaitable : awaitables)
         {
-            promise->waiter_.add(&waiter_);
+            awaitable->waiter_.add(&waiter_);
         }
     }
 
@@ -219,8 +219,8 @@ struct io_wait_for_any_promise : public io_promise
         for (auto *waiter : waiter_.waiters_)
         {
             // technically we should only get here if a promise is not null, but check just in case
-            if (!waiter->promise_) { continue; }
-            if (waiter->promise_->await_ready()) { ready = true; }
+            if (!waiter->awaitable_) { continue; }
+            if (waiter->awaitable_->await_ready()) { ready = true; }
         }
 
         // if one of the waiters is ready, return true
@@ -235,9 +235,9 @@ struct io_wait_for_any_promise : public io_promise
         waiter_.awaiting_coroutine_ = awaiting_coroutine;
     }
 
-    [[nodiscard]] std::vector<io_promise *> await_resume() noexcept
+    [[nodiscard]] std::vector<io_awaitable *> await_resume() noexcept
     {
-        std::vector<io_promise *> ready_waiters;
+        std::vector<io_awaitable *> ready_waiters;
 
         for (auto *waiter : waiter_.waiters_)
         {
@@ -255,7 +255,7 @@ struct io_wait_for_any_promise : public io_promise
             
             // Only include completed waiters in results
             if (waiter->result() != io_result::waiting) { 
-                ready_waiters.emplace_back(waiter->promise_); 
+                ready_waiters.emplace_back(waiter->awaitable_); 
             }
         }
 
@@ -267,10 +267,10 @@ struct io_wait_for_any_promise : public io_promise
 
     void cancel() noexcept override
     {
-        io_promise::cancel();
+        io_awaitable::cancel();
         for (auto *waiter : waiter_.waiters_)
         {
-            waiter->promise_->cancel();
+            waiter->awaitable_->cancel();
         }
     }
 };
@@ -283,14 +283,14 @@ struct io_wait_for_any_promise : public io_promise
  * 
  * The caller still needs to call co_await on the individual promises to get the results.
  */
-struct io_wait_for_all_promise : public io_promise
+struct io_wait_for_all_promise : public io_awaitable
 {
     io_wait_for_all_promise() = delete;
     io_wait_for_all_promise(const io_wait_for_all_promise &) = delete;
 
     // Keep existing constructor for initializer lists
-    io_wait_for_all_promise(io_loop &loop, time_point_t complete_by, std::initializer_list<io_promise *> promises) noexcept
-    : io_promise{loop, complete_by}
+    io_wait_for_all_promise(io_loop &loop, time_point_t complete_by, std::initializer_list<io_awaitable *> promises) noexcept
+    : io_awaitable{loop, complete_by}
     {
         // Set minimum completion count to 1 for empty lists
         waiter_.set_completion_count(promises.size() > 0 ? promises.size() : 1);
@@ -306,9 +306,9 @@ struct io_wait_for_all_promise : public io_promise
     }
 
     // Remove the plain vector constructor and keep only the one with optional parameter
-    io_wait_for_all_promise(io_loop &loop, time_point_t complete_by, const std::vector<io_promise *>& promises, 
+    io_wait_for_all_promise(io_loop &loop, time_point_t complete_by, const std::vector<io_awaitable *>& promises, 
                            size_t completion_count = 0) noexcept
-    : io_promise{loop, complete_by}
+    : io_awaitable{loop, complete_by}
     {
         // Use provided completion count or promises size
         waiter_.set_completion_count(completion_count > 0 ? completion_count : 
@@ -332,7 +332,7 @@ struct io_wait_for_all_promise : public io_promise
         // Count how many waiters are already completed
         for (auto *waiter : waiter_.waiters_)
         {
-            if (!waiter->promise_) { continue; }
+            if (!waiter->awaitable_) { continue; }
             if (waiter->result() != io_result::waiting) { 
                 completed_count++;
                 continue; 
@@ -367,14 +367,14 @@ struct io_wait_for_all_promise : public io_promise
         waiter_.awaiting_coroutine_ = awaiting_coroutine;
     }
 
-    [[nodiscard]] std::vector<io_promise *> await_resume() noexcept
+    [[nodiscard]] std::vector<io_awaitable *> await_resume() noexcept
     {
-        std::vector<io_promise *> completed_waiters;
+        std::vector<io_awaitable *> completed_waiters;
         
         // Reserve space based on actual completed waiters to avoid reallocations
         size_t completed_count = 0;
         for (auto* waiter : waiter_.waiters_) {
-            if (waiter && waiter->result() != io_result::waiting && waiter->promise_) {
+            if (waiter && waiter->result() != io_result::waiting && waiter->awaitable_) {
                 completed_count++;
             }
         }
@@ -387,17 +387,17 @@ struct io_wait_for_all_promise : public io_promise
         // First collect completed waiters
         for (auto *waiter : waiter_.waiters_)
         {
-            if (!waiter || !waiter->promise_) { 
+            if (!waiter || !waiter->awaitable_) { 
                 continue; 
             }
             
             // Only include completed waiters
             if (waiter->result() != io_result::waiting) {
-                completed_waiters.push_back(waiter->promise_);
+                completed_waiters.push_back(waiter->awaitable_);
             } else if (timeout()) {
                 // Force completion of remaining waiters if we timed out
                 waiter->complete(io_result::timeout);
-                completed_waiters.push_back(waiter->promise_);
+                completed_waiters.push_back(waiter->awaitable_);
             }
             
             // Clear parent reference 
@@ -421,20 +421,20 @@ struct io_wait_for_all_promise : public io_promise
     
     void cancel() noexcept override
     {
-        io_promise::cancel();
+        io_awaitable::cancel();
         for (auto *waiter : waiter_.waiters_)
         {
-            waiter->promise_->cancel();
+            waiter->awaitable_->cancel();
         }
     }
 };
 
 } // namespace detail
 
-auto yield(io_loop &loop) { return detail::io_promise{loop, time_now()}; }
+auto yield(io_loop &loop) { return detail::io_awaitable{loop, time_now()}; }
 auto sleep(io_loop &loop, std::chrono::milliseconds duration)
 {
-    return detail::io_promise{loop, time_now() + duration};
+    return detail::io_awaitable{loop, time_now() + duration};
 }
 
 } // namespace io

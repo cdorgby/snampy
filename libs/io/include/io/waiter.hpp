@@ -15,7 +15,7 @@ namespace io {
 namespace detail {
 
 /**
- * @brief A waiter for a promise's completion.
+ * @brief This the I/O loop side of the promise/waiter pattern.
  *
  * This struct represents something that is waiting on a promise to complete. In case of the I/O loop it is any I/O
  * operation that is waiting for a result. Read/write readiness, timeouts, etc.
@@ -47,20 +47,20 @@ struct io_waiter
     static constexpr size_t DEFAULT_WAITERS_CAPACITY = 32;
 
     io_waiter() = delete;
-    io_waiter(io_loop &loop, callback_t callback, struct io_promise *promise, time_point_t complete_by = time_point_t::max()) noexcept
+    io_waiter(io_loop &loop, callback_t callback, struct io_awaitable *promise, time_point_t complete_by = time_point_t::max()) noexcept
     : complete_by_{complete_by},
       callback_{callback},
-      promise_{promise},
+      awaitable_{promise},
       loop_{loop} 
     {
         waiters_.reserve(DEFAULT_WAITERS_CAPACITY);
     }
 
-    io_waiter(io_loop &loop, io_waiter *waiter, callback_t callback, struct io_promise *promise, time_point_t complete_by = time_point_t::max()) noexcept
+    io_waiter(io_loop &loop, io_waiter *waiter, callback_t callback, struct io_awaitable *promise, time_point_t complete_by = time_point_t::max()) noexcept
     : awaiting_waiter_{waiter},
       complete_by_{complete_by},
       callback_{callback},
-      promise_{promise},
+      awaitable_{promise},
       loop_{loop}
     {
         waiters_.reserve(DEFAULT_WAITERS_CAPACITY);
@@ -106,7 +106,7 @@ struct io_waiter
     /**
      * @brief A pointer to the promise associated with this waiter.
      */
-    struct io_promise *promise_{nullptr};
+    struct io_awaitable *awaitable_{nullptr};
 
     /**
      * @brief The result of the operation. What the promise sees

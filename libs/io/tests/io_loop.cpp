@@ -172,13 +172,13 @@ TEST_CASE("io_loop_basic multiple timeout promises with partial completion", "[i
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p1 = io_promise{loop, time_now() + std::chrono::milliseconds(100)};
-    auto p2 = io_promise{loop, time_now() + std::chrono::milliseconds(200)};
-    auto p3 = io_promise{loop, time_now() + std::chrono::milliseconds(300)};
+    auto p1 = io_awaitable{loop, time_now() + std::chrono::milliseconds(100)};
+    auto p2 = io_awaitable{loop, time_now() + std::chrono::milliseconds(200)};
+    auto p3 = io_awaitable{loop, time_now() + std::chrono::milliseconds(300)};
 
     auto wait_all = [&]() -> io_task {
         // Wait for any of the promises to complete
-        auto ready = co_await io_wait_for_any_promise{loop, time_now() + std::chrono::milliseconds(150), {&p1, &p2, &p3}};
+        auto ready = co_await io_wait_for_any{loop, time_now() + std::chrono::milliseconds(150), {&p1, &p2, &p3}};
         
         // We expect only p1 to timeout within 150ms
         REQUIRE(ready.size() == 1);
@@ -212,9 +212,9 @@ TEST_CASE("io_loop_basic multiple timeout promises with full completion", "[io_l
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p1 = io_promise{loop, time_now() + std::chrono::milliseconds(100)};
-    auto p2 = io_promise{loop, time_now() + std::chrono::milliseconds(200)};
-    auto p3 = io_promise{loop, time_now() + std::chrono::milliseconds(300)};
+    auto p1 = io_awaitable{loop, time_now() + std::chrono::milliseconds(100)};
+    auto p2 = io_awaitable{loop, time_now() + std::chrono::milliseconds(200)};
+    auto p3 = io_awaitable{loop, time_now() + std::chrono::milliseconds(300)};
 
     auto wait_all = [&]() -> io_task {
         // Wait for any of the promises to complete
@@ -255,8 +255,8 @@ TEST_CASE("io_loop_basic wait_for_all with already completed promises", "[io_loo
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p1 = io_promise{loop, time_now() - std::chrono::milliseconds(100)}; // Already timed out
-    auto p2 = io_promise{loop, time_now() - std::chrono::milliseconds(100)}; // Already timed out
+    auto p1 = io_awaitable{loop, time_now() - std::chrono::milliseconds(100)}; // Already timed out
+    auto p2 = io_awaitable{loop, time_now() - std::chrono::milliseconds(100)}; // Already timed out
 
     auto wait_all = [&]() -> io_task {
         auto ready = co_await io_wait_for_all_promise{loop, time_now() + std::chrono::milliseconds(100), {&p1, &p2}};
@@ -274,8 +274,8 @@ TEST_CASE("io_loop_basic wait_for_all timeout before completion", "[io_loop]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p1 = io_promise{loop, time_now() + std::chrono::milliseconds(500)};
-    auto p2 = io_promise{loop, time_now() + std::chrono::milliseconds(600)};
+    auto p1 = io_awaitable{loop, time_now() + std::chrono::milliseconds(500)};
+    auto p2 = io_awaitable{loop, time_now() + std::chrono::milliseconds(600)};
 
     auto wait_all = [&]() -> io_task {
         // Wait with shorter timeout than promises
@@ -301,18 +301,18 @@ TEST_CASE("io_loop_basic waiter stress test", "[io_loop]") {
     std::atomic<size_t> removed_count{0};
 
     auto stress_test = [&]() -> io_task {
-        std::vector<std::unique_ptr<io_promise>> promises;
+        std::vector<std::unique_ptr<io_awaitable>> promises;
         promises.reserve(NUM_WAITERS * GROUPS);
 
         // Create groups of promises with different timeouts
         for (size_t g = 0; g < GROUPS; ++g) {
             for (size_t i = 0; i < NUM_WAITERS; ++i) {
                 auto timeout = time_now() + std::chrono::milliseconds(100 * (g + 1));
-                promises.push_back(std::make_unique<io_promise>(loop, timeout));
+                promises.push_back(std::make_unique<io_awaitable>(loop, timeout));
             }
         }
 
-        std::vector<io_promise*> all_promises;
+        std::vector<io_awaitable*> all_promises;
         all_promises.reserve(promises.size());
         
         for (const auto& p : promises) {
@@ -369,7 +369,7 @@ TEST_CASE("io_loop_basic read write operations", "[io_loop]") {
     bool read_completed = false;
 
     auto write_task = [&]() -> io_task {
-        auto write_promise = io_desc_promise{loop, pipefd[1], io_desc_type::write, 
+        auto write_promise = io_desc_awaitable{loop, pipefd[1], io_desc_type::write, 
                                            time_now() + std::chrono::milliseconds(100)};
         auto result = co_await write_promise;
         REQUIRE(result == io_result::done);
@@ -381,7 +381,7 @@ TEST_CASE("io_loop_basic read write operations", "[io_loop]") {
     };
 
     auto read_task = [&]() -> io_task {
-        auto read_promise = io_desc_promise{loop, pipefd[0], io_desc_type::read,
+        auto read_promise = io_desc_awaitable{loop, pipefd[0], io_desc_type::read,
                                           time_now() + std::chrono::milliseconds(100)};
         auto result = co_await read_promise;
         REQUIRE(result == io_result::done);
@@ -420,7 +420,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
 
     auto socket1_task = [&]() -> io_task {
         // First write msg1
-        auto write_promise = io_desc_promise{loop, sockets[0], io_desc_type::write, 
+        auto write_promise = io_desc_awaitable{loop, sockets[0], io_desc_type::write, 
                                            time_now() + std::chrono::milliseconds(100)};
         auto result = co_await write_promise;
         REQUIRE(result == io_result::done);
@@ -430,7 +430,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
         completed_ops++;
 
         // Then read msg2
-        auto read_promise = io_desc_promise{loop, sockets[0], io_desc_type::read,
+        auto read_promise = io_desc_awaitable{loop, sockets[0], io_desc_type::read,
                                           time_now() + std::chrono::milliseconds(100)};
         result = co_await read_promise;
         REQUIRE(result == io_result::done);
@@ -445,7 +445,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
 
     auto socket2_task = [&]() -> io_task {
         // First read msg1
-        auto read_promise = io_desc_promise{loop, sockets[1], io_desc_type::read,
+        auto read_promise = io_desc_awaitable{loop, sockets[1], io_desc_type::read,
                                           time_now() + std::chrono::milliseconds(100)};
         auto result = co_await read_promise;
         REQUIRE(result == io_result::done);
@@ -456,7 +456,7 @@ TEST_CASE("io_loop_basic bidirectional socket operations", "[io_loop]") {
         completed_ops++;
 
         // Then write msg2
-        auto write_promise = io_desc_promise{loop, sockets[1], io_desc_type::write,
+        auto write_promise = io_desc_awaitable{loop, sockets[1], io_desc_type::write,
                                            time_now() + std::chrono::milliseconds(100)};
         result = co_await write_promise;
         REQUIRE(result == io_result::done);
@@ -482,9 +482,9 @@ TEST_CASE("io_loop_basic waiter cancellation", "[io_loop]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p1 = io_promise{loop, time_now() + std::chrono::milliseconds(100)};
-    auto p2 = io_promise{loop, time_now() + std::chrono::milliseconds(200)};
-    auto p3 = io_promise{loop, time_now() + std::chrono::milliseconds(300)};
+    auto p1 = io_awaitable{loop, time_now() + std::chrono::milliseconds(100)};
+    auto p2 = io_awaitable{loop, time_now() + std::chrono::milliseconds(200)};
+    auto p3 = io_awaitable{loop, time_now() + std::chrono::milliseconds(300)};
 
     std::vector<io_result> results;
     std::atomic<bool> test_completed{false};
@@ -497,7 +497,7 @@ TEST_CASE("io_loop_basic waiter cancellation", "[io_loop]") {
 
         // Second test: cancel a waiter in wait_for_any
         {
-            auto ready = co_await io_wait_for_any_promise{loop, time_now() + std::chrono::milliseconds(150), {&p2, &p3}};
+            auto ready = co_await io_wait_for_any{loop, time_now() + std::chrono::milliseconds(150), {&p2, &p3}};
             REQUIRE(ready.size() == 1);
             REQUIRE(ready[0] == &p2);
             res = co_await p2;
@@ -541,7 +541,7 @@ TEST_CASE("io_loop_basic promise cancel API", "[io_loop]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p = io_promise{loop, time_now() + std::chrono::milliseconds(100)};
+    auto p = io_awaitable{loop, time_now() + std::chrono::milliseconds(100)};
     
     // Test initial state
     REQUIRE_FALSE(p.canceled());
@@ -556,7 +556,7 @@ TEST_CASE("io_loop_basic promise cancel during await", "[io_loop]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p = io_promise{loop, time_now() + std::chrono::milliseconds(100)};
+    auto p = io_awaitable{loop, time_now() + std::chrono::milliseconds(100)};
     bool task_completed = false;
 
     auto wait_task = [&]() -> io_task {
@@ -584,9 +584,9 @@ TEST_CASE("io_loop_basic wait_for_any with cancellation", "[io_loop]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto p1 = io_promise{loop, time_now() + std::chrono::seconds(100)};
-    auto p2 = io_promise{loop, time_now() + std::chrono::seconds(200)};
-    auto p3 = io_promise{loop, time_now() + std::chrono::seconds(300)};
+    auto p1 = io_awaitable{loop, time_now() + std::chrono::seconds(100)};
+    auto p2 = io_awaitable{loop, time_now() + std::chrono::seconds(200)};
+    auto p3 = io_awaitable{loop, time_now() + std::chrono::seconds(300)};
     bool test_completed = false;
 
     auto test_task = [&]() -> io_task {
@@ -596,7 +596,7 @@ TEST_CASE("io_loop_basic wait_for_any with cancellation", "[io_loop]") {
         REQUIRE(p2.waiter_.result() == io_result::cancelled);
         
         // Create and immediately await the wait_task
-        auto ready = co_await io_wait_for_any_promise{loop, 
+        auto ready = co_await io_wait_for_any{loop, 
             time_now() + std::chrono::seconds(500), 
             {&p1, &p2, &p3}};
 
@@ -629,7 +629,7 @@ TEST_CASE("Error handling with timeout result", "[error_handling]") {
     loop.init();
 
     // Create a promise with a very short timeout
-    auto promise = io_promise{loop, time_now() + std::chrono::milliseconds(1)};
+    auto promise = io_awaitable{loop, time_now() + std::chrono::milliseconds(1)};
     
     // Let it timeout
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -648,7 +648,7 @@ TEST_CASE("Error handling with cancellation", "[error_handling]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto promise = io_promise{loop, time_now() + std::chrono::seconds(10)};
+    auto promise = io_awaitable{loop, time_now() + std::chrono::seconds(10)};
     
     // Cancel the promise
     promise.cancel();
@@ -667,7 +667,7 @@ TEST_CASE("Error handling with system error", "[error_handling]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
 
-    auto promise = io_promise{loop, time_now() + std::chrono::seconds(10)};
+    auto promise = io_awaitable{loop, time_now() + std::chrono::seconds(10)};
     
     // Simulate a system error (EACCES - Permission denied)
     errno = EACCES;
@@ -686,17 +686,17 @@ TEST_CASE("Error propagation in wait_for_any", "[error_handling]") {
 
     bool test_completed = false;
 
-    auto p1 = io_promise{loop, time_now() + std::chrono::seconds(60)};
-    auto p2 = io_promise{loop, time_now() + std::chrono::seconds(60)};
+    auto p1 = io_awaitable{loop, time_now() + std::chrono::seconds(60)};
+    auto p2 = io_awaitable{loop, time_now() + std::chrono::seconds(60)};
     
     auto test_task = [&]() -> io_task {
         // Simulate error on p1
         errno = ECONNREFUSED;
-        p1.waiter_.promise_->set_error(system_error());
+        p1.waiter_.awaitable_->set_error(system_error());
         p1.waiter_.complete(io_result::error);
         
         // Wait for any promise to complete
-        auto ready = co_await io_wait_for_any_promise{loop, time_now() + std::chrono::seconds(1), {&p1, &p2}};
+        auto ready = co_await io_wait_for_any{loop, time_now() + std::chrono::seconds(1), {&p1, &p2}};
         
         // Verify p1 completed with error
         REQUIRE(ready.size() == 1);

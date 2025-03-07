@@ -1,7 +1,6 @@
 #pragma once
 
 #include <io/common.hpp>
-#include <io/ioops.hpp>
 
 // Remove the circular include
 #include <net/sockaddr.hpp>
@@ -78,7 +77,7 @@ struct socket_config
 namespace detail
 {
 
-struct io_accept : public io_op_base
+struct io_accept : public io_desc_awaitable
 {
     struct sock_addr &remote_;
     int &remote_fd_;
@@ -88,7 +87,7 @@ struct io_accept : public io_op_base
     io_accept(const io_accept &) = delete;
 
     io_accept(io_loop &loop, int fd, int &remote_fd, struct sock_addr &remote, time_point_t complete_by = time_point_t::max()) noexcept
-    : io_op_base{loop, fd, io_desc_type::read, complete_by},
+    : io_desc_awaitable{loop, fd, io_desc_type::read, complete_by},
       remote_{remote},
       remote_fd_{remote_fd}
     {
@@ -131,13 +130,13 @@ struct io_accept : public io_op_base
     }
 };
 
-struct io_connect : public io_op_base
+struct io_connect : public io_desc_awaitable
 {
     io_connect()                   = delete;
     io_connect(const io_connect &) = delete;
 
     io_connect(io_loop &loop, int fd, const struct sock_addr &remote, const socket_config &config, time_point_t complete_by = time_point_t::max()) noexcept
-    : io_op_base{loop, fd, io_desc_type::write, complete_by},
+    : io_desc_awaitable{loop, fd, io_desc_type::write, complete_by},
       remote_{remote},
       config_{config}
     {
@@ -223,7 +222,7 @@ struct io_connect : public io_op_base
     const socket_config &config_;
 };
 
-struct io_recvfrom : public io_op_base
+struct io_recvfrom : public io_desc_awaitable
 {
     void *buffer_;
     size_t buffer_size_;
@@ -245,7 +244,7 @@ struct io_recvfrom : public io_op_base
             socklen_t *addrlen = nullptr,
             int flags = 0,
             time_point_t complete_by = time_point_t::max()) noexcept
-    : io_op_base{loop, fd, io_desc_type::read, complete_by},
+    : io_desc_awaitable{loop, fd, io_desc_type::read, complete_by},
       buffer_{buffer},
       buffer_size_{buffer_size},
       flags_{flags},
@@ -337,7 +336,7 @@ struct io_recvfrom : public io_op_base
     }
 };
 
-struct io_recvmsg : public io_op_base
+struct io_recvmsg : public io_desc_awaitable
 {
     struct msghdr *msg_;
     void *msg_control_;
@@ -353,7 +352,7 @@ struct io_recvmsg : public io_op_base
     io_recvmsg(const io_recvmsg &) = delete;
 
     io_recvmsg(io_loop &loop, int fd, struct msghdr *msg, ssize_t &bytes_received, int flags = 0, time_point_t complete_by = time_point_t::max()) noexcept
-    : io_op_base{loop, fd, io_desc_type::read, complete_by},
+    : io_desc_awaitable{loop, fd, io_desc_type::read, complete_by},
       msg_{msg},
       flags_{flags},
       bytes_received_{bytes_received},
@@ -464,7 +463,7 @@ struct io_recvmsg : public io_op_base
     }
 };
 
-struct io_sendto : public io_op_base
+struct io_sendto : public io_desc_awaitable
 {
     const char *buffer_;
     size_t buffer_size_;
@@ -485,7 +484,7 @@ struct io_sendto : public io_op_base
             socklen_t addrlen = 0,
             int flags                = 0,
             time_point_t complete_by = time_point_t::max()) noexcept
-    : io_op_base{loop, fd, io_desc_type::write, complete_by},
+    : io_desc_awaitable{loop, fd, io_desc_type::write, complete_by},
       buffer_{buffer},
       buffer_size_{buffer_size},
       flags_{flags},
@@ -544,7 +543,7 @@ struct io_sendto : public io_op_base
     }
 };
 
-struct io_sendmsg : public io_op_base
+struct io_sendmsg : public io_desc_awaitable
 {
     struct msghdr *msg_;
     int flags_;
@@ -559,7 +558,7 @@ struct io_sendmsg : public io_op_base
     io_sendmsg(const io_sendmsg &) = delete;
 
     io_sendmsg(io_loop &loop, int fd, struct msghdr *msg, size_t &bytes_sent, int flags = 0, time_point_t complete_by = time_point_t::max()) noexcept
-    : io_op_base{loop, fd, io_desc_type::write, complete_by},
+    : io_desc_awaitable{loop, fd, io_desc_type::write, complete_by},
       msg_{msg},
       flags_{flags},
       bytes_sent_{bytes_sent},

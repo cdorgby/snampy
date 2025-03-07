@@ -24,7 +24,7 @@ bool io_waiter::complete(io_result result) noexcept
         // but only proceed to complete it when completion_count_ reaches 0
         if (result != io_result::waiting)
         {
-            // For io_wait_for_any_promise, complete the parent immediately with the first completion
+            // For io_wait_for_any, complete the parent immediately with the first completion
             bool complete_parent = true;
 
             // Only check completion count if it's greater than 1 (wait-for-all behavior)

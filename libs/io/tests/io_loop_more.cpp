@@ -17,15 +17,15 @@ TEST_CASE("Concurrent promise completion", "[io_loop]") {
     loop.init();
     
     const int NUM_PROMISES = 100;
-    std::vector<std::unique_ptr<io_promise>> promises;
+    std::vector<std::unique_ptr<io_awaitable>> promises;
     std::atomic<int> completed_count{0};
     
     for (int i = 0; i < NUM_PROMISES; i++) {
-        promises.push_back(std::make_unique<io_promise>(loop, time_now() + std::chrono::milliseconds(500)));
+        promises.push_back(std::make_unique<io_awaitable>(loop, time_now() + std::chrono::milliseconds(500)));
     }
     
     auto waiter_task = [&]() -> io_task {
-        std::vector<io_promise*> raw_promises;
+        std::vector<io_awaitable*> raw_promises;
         for (auto& p : promises) {
             raw_promises.push_back(p.get());
         }
@@ -40,7 +40,7 @@ TEST_CASE("Concurrent promise completion", "[io_loop]") {
     
     auto completion_task = [&]() -> io_task {
         // Small initial delay
-        auto delay = io_promise{loop, time_now() + std::chrono::milliseconds(50)};
+        auto delay = io_awaitable{loop, time_now() + std::chrono::milliseconds(50)};
         co_await delay;
         
         // Complete all promises nearly simultaneously
@@ -67,8 +67,8 @@ TEST_CASE("Multiple loop interaction", "[io_loop]") {
     loop2.init();
     
     // Create a promise on each loop
-    auto p1 = io_promise{loop1, time_now() + std::chrono::milliseconds(100)};
-    auto p2 = io_promise{loop2, time_now() + std::chrono::milliseconds(100)};
+    auto p1 = io_awaitable{loop1, time_now() + std::chrono::milliseconds(100)};
+    auto p2 = io_awaitable{loop2, time_now() + std::chrono::milliseconds(100)};
     
     std::atomic<bool> loop1_done{false};
     std::atomic<bool> loop2_done{false};
@@ -110,7 +110,7 @@ TEST_CASE("Extremely short timeouts", "[io_loop]") {
     loop.init();
     
     // Promise with extremely short timeout (0ms)
-    auto p = io_promise{loop, time_now()};
+    auto p = io_awaitable{loop, time_now()};
     
     bool task_completed = false;
     auto task = [&]() -> io_task {
@@ -135,9 +135,9 @@ TEST_CASE("Error handling for complex operation chains", "[io_loop]") {
     
     auto leaf_task = [&]() -> io_task {
         // Simulate a system error
-        auto p = io_promise{loop, time_now() + std::chrono::seconds(1)};
+        auto p = io_awaitable{loop, time_now() + std::chrono::seconds(1)};
         errno = ECONNREFUSED;
-        p.waiter_.promise_->set_error(std::error_code(errno, std::system_category()));
+        p.waiter_.awaitable_->set_error(std::error_code(errno, std::system_category()));
         p.waiter_.complete(io_result::error);
         
         auto result = co_await p;
@@ -164,7 +164,7 @@ TEST_CASE("Error handling for complex operation chains", "[io_loop]") {
         co_await middle_task();
         
         // Verify that we can continue after an error
-        auto p = io_promise{loop, time_now() + std::chrono::milliseconds(10)};
+        auto p = io_awaitable{loop, time_now() + std::chrono::milliseconds(10)};
         auto result = co_await p;
         REQUIRE(result == io_result::timeout);
         
@@ -193,7 +193,7 @@ TEST_CASE("Resource cleanup after cancellation", "[io_loop]") {
     
     auto cleanup_task = [&]() -> io_task {
         // Create a promise for the read end
-        auto read_promise = io_desc_promise{loop, pipefd[0], io_desc_type::read, 
+        auto read_promise = io_desc_awaitable{loop, pipefd[0], io_desc_type::read, 
                                           time_now() + std::chrono::milliseconds(500)};
         
         // Start waiting for data
@@ -210,7 +210,7 @@ TEST_CASE("Resource cleanup after cancellation", "[io_loop]") {
         auto t = read_task();
         
         // Wait briefly then cancel the read
-        auto delay = io_promise{loop, time_now() + std::chrono::milliseconds(50)};
+        auto delay = io_awaitable{loop, time_now() + std::chrono::milliseconds(50)};
         co_await delay;
         
         read_promise.cancel();
@@ -237,7 +237,7 @@ TEST_CASE("Waiter reuse with complex operations", "[io_loop]") {
     io_loop_basic<epoll_poller> loop;
     loop.init();
     
-    auto p = io_promise{loop, time_now() + std::chrono::milliseconds(100)};
+    auto p = io_awaitable{loop, time_now() + std::chrono::milliseconds(100)};
     int completion_count = 0;
     
     auto test_task = [&]() -> io_task {
@@ -261,9 +261,9 @@ TEST_CASE("Waiter reuse with complex operations", "[io_loop]") {
         
         // Reset and use with io_wait_for_any
         p.reset(time_now() + std::chrono::milliseconds(100));
-        auto p2 = io_promise{loop, time_now() + std::chrono::milliseconds(200)};
+        auto p2 = io_awaitable{loop, time_now() + std::chrono::milliseconds(200)};
         
-        auto ready = co_await io_wait_for_any_promise{loop, time_now() + std::chrono::milliseconds(150), {&p, &p2}};
+        auto ready = co_await io_wait_for_any{loop, time_now() + std::chrono::milliseconds(150), {&p, &p2}};
         REQUIRE(ready.size() == 1);
         REQUIRE(ready[0] == &p);
         

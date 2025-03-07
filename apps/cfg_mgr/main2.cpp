@@ -34,7 +34,7 @@ io_task void_test(io::io_loop &loop)
     auto r  = io::detail::io_promise{loop, now + std::chrono::seconds(2)};
     auto r2 = io::detail::io_promise{loop, now + std::chrono::seconds(4)};
 
-    auto p = io::detail::io_wait_for_any_promise{
+    auto p = io::detail::io_wait_for_any{
         loop,
         time_now() + std::chrono::seconds(6),
         {&r, &r2}

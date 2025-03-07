@@ -268,19 +268,19 @@ bool io_loop_basic<poller_type>::process_ready_waiters(std::vector<io_waiter *> 
         {
             LOG(trace) << "Waiter is ready with type " << static_cast<int>(waiter->ready());
             
-            if (waiter->promise_)
+            if (waiter->awaitable_)
             {
                 LOG(trace) << "Waiter has promise, checking ready state";
                 // promise wants to complete or still wants to wait some more
-                if (waiter->promise_->check_ready())
+                if (waiter->awaitable_->check_ready())
                 {
                     // handle propogation of the result
-                    if (waiter->promise_->check_closed()) 
+                    if (waiter->awaitable_->check_closed()) 
                     { 
                         LOG(trace) << "Promise closed, completing with closed";
                         waiter->complete(io_result::closed); 
                     }
-                    else if (waiter->promise_->has_error()) 
+                    else if (waiter->awaitable_->has_error()) 
                     { 
                         LOG(trace) << "Promise has error, completing with error";
                         waiter->complete(io_result::error); 
