@@ -283,3 +283,28 @@ TEST_CASE("Waiter reuse with complex operations", "[io_loop]") {
     
     REQUIRE(completion_count == 4);
 }
+
+TEST_CASE("on_done basic", "[io_loop_funcs]") {
+    io_loop_basic<epoll_poller> loop;
+    loop.init();
+    
+    bool done = false;
+
+    auto task = [&]() -> io_task
+    {
+        io_awaitable p(loop, time_now() + std::chrono::milliseconds(100));
+        p.on_done(
+            [&]()
+            {
+                REQUIRE(p.result() == io_result::timeout);
+                done = true;
+            });
+
+        co_await p;
+        REQUIRE(done);
+        co_return;
+    };
+
+    loop.schedule(task(), "on_done_test");
+    loop.run();
+}

@@ -26,6 +26,9 @@ namespace detail
  */
 struct io_awaitable
 {
+    // callback that can be used with io_awaitable::done(), io_awaitable::error(), etc.
+    using awaitable_callback_t = std::function<void()>;
+
     io_waiter waiter_;
 
     io_awaitable()                        = delete;
@@ -55,7 +58,6 @@ struct io_awaitable
 
     [[nodiscard]] io_result await_resume() noexcept
     {
-        // let us know that we are about to resume and they should do any necessary cleanup
         completed();
 
         // Always remove from I/O loop when resuming
@@ -94,6 +96,7 @@ struct io_awaitable
         return waiter_.result() == io_result::cancelled;
     }
 
+    [[nodiscard]] io_result result() const noexcept { return waiter_.result(); }
     /**
      * @brief Returns the error code associated with this operation.
      * @return The error code, which is valid when result is io_result::error.
@@ -127,6 +130,12 @@ struct io_awaitable
     void set_error(std::error_code ec) noexcept { error_ = ec; }
 
     /**
+     * @brief Get the error message associated with this operation.
+     * @return The error message.
+     */
+    [[nodiscard]] std::string error_message() const noexcept { return error_.message(); }
+
+    /**
      * @brief check if the operation is ready.
      * 
      * This is a non-suspending version of await_ready. It checks if the operation is ready to be resumed. It called
@@ -151,14 +160,68 @@ struct io_awaitable
 
     /**
      * @brief Called when the operation is about to be resumed.
-     * 
+     *
      * This method is called just before the operation is resumed. It can be used to perform any cleanup or finalization
      * before the operation is resumed.
      */
-    virtual void completed() noexcept {}
+    virtual void completed() noexcept 
+    {
+        if (has_error())
+        {
+            for (auto &callback : on_error_callbacks_) { callback(); }
+        }
+        else
+        {
+            for (auto &callback : on_done_callbacks_) { callback(); }
+        }
+    }
+
+    /**
+     * @brief Add a callback to be called when the operation is done.
+     *
+     * The callback will be called when the operation is completed with result set to io_result::done. By using this
+     * method and on_error(), you can handle the completion of the operation in a more structured way without having to
+     * check the result in the coroutine.
+     *
+     * @note The callback will be called in the context of the I/O loop, the awaitable still needs to be co_awaited to
+     * get the function called. It is completely safe to capture awaitable in the callbac, just don't try to destroy it.
+     *
+     * @param callback The callback to be called.
+     * @return The awaitable object.
+     *
+     */
+    auto on_done(this auto &&self, awaitable_callback_t callback) noexcept -> decltype(self) &
+    {
+        self.on_done_callbacks_.emplace_back(callback);
+        return self;
+    }
+
+    /**
+     * @brief Add a callback to be called when the operation is completed with any other result than io_result::done.
+     *
+     * The callback will be called when the operation is completed with result set to io_result::error,
+     * io_result::timeout, or any other result than io_result::done.
+     *
+     * @see on_done() for more information.
+     * 
+     * @note Don't try to destroy the awaitable in the callback, that will cause undefined behavior.
+     *
+     * @param callback The callback to be called.
+     * @return The awaitable object.
+     *
+     */
+    auto on_error(this auto &&self, awaitable_callback_t callback) noexcept -> decltype(self) &
+    {
+        self.on_error_callbacks_.emplace_back(callback);
+        return self;
+    }
 
   protected:
     std::error_code error_{};
+
+  private:
+    std::vector<awaitable_callback_t> on_done_callbacks_;
+    std::vector<awaitable_callback_t> on_error_callbacks_;
 };
 
 /**
@@ -183,12 +246,6 @@ struct io_desc_awaitable : public io_awaitable
     [[nodiscard]] int fd() const noexcept { return waiter_.fd(); }
     [[nodiscard]] io_desc_type type() const noexcept { return waiter_.type(); }
 
-    // Add accessors for error information
-    [[nodiscard]] const std::error_code &error() const noexcept { return error_; }
-
-    [[nodiscard]] bool has_error() const noexcept { return error_.value() != 0; }
-
-    [[nodiscard]] std::string error_message() const noexcept { return error_.message(); }
 };
 
 /**

@@ -236,14 +236,14 @@ struct io_recvfrom : public io_desc_awaitable
     io_recvfrom(const io_recvfrom &) = delete;
 
     io_recvfrom(io_loop &loop,
-            int fd,
-            void *buffer,
-            size_t buffer_size,
-            ssize_t &bytes_received,
-            struct sockaddr *src_addr = nullptr,
-            socklen_t *addrlen = nullptr,
-            int flags = 0,
-            time_point_t complete_by = time_point_t::max()) noexcept
+                int fd,
+                void *buffer,
+                size_t buffer_size,
+                ssize_t &bytes_received,
+                struct sockaddr *src_addr = nullptr,
+                socklen_t *addrlen        = nullptr,
+                int flags                 = 0,
+                time_point_t complete_by  = time_point_t::max()) noexcept
     : io_desc_awaitable{loop, fd, io_desc_type::read, complete_by},
       buffer_{buffer},
       buffer_size_{buffer_size},
@@ -361,11 +361,9 @@ struct io_recvmsg : public io_desc_awaitable
       first_call_{true}
     {
         bytes_received_ = 0;
-        
+
         // Calculate total capacity across all iovecs
-        for (size_t i = 0; i < msg_->msg_iovlen; ++i) {
-            total_capacity_ += msg_->msg_iov[i].iov_len;
-        }
+        for (size_t i = 0; i < msg_->msg_iovlen; ++i) { total_capacity_ += msg_->msg_iov[i].iov_len; }
     }
 
     bool check_ready() noexcept override
@@ -374,10 +372,7 @@ struct io_recvmsg : public io_desc_awaitable
         return has_error() || closed_ || bytes_received_ == total_capacity_;
     }
 
-    bool check_closed() noexcept override
-    {
-        return closed_;
-    }
+    bool check_closed() noexcept override { return closed_; }
 
     void completed() noexcept override
     {
@@ -424,9 +419,9 @@ struct io_recvmsg : public io_desc_awaitable
                 if (first_call_)
                 {
                     LOG(trace) << "Received " << result << " bytes via recvmsg";
-                    first_call_ = false;
+                    first_call_      = false;
                     // squirrel away the control data for later
-                    msg_control_ = msg_->msg_control;
+                    msg_control_     = msg_->msg_control;
                     msg_control_len_ = msg_->msg_controllen;
                 }
 
@@ -472,18 +467,18 @@ struct io_sendto : public io_desc_awaitable
     const struct sockaddr *dest_addr_;
     socklen_t addrlen_;
 
-    io_sendto()                 = delete;
+    io_sendto()                  = delete;
     io_sendto(const io_sendto &) = delete;
 
     io_sendto(io_loop &loop,
-            int fd,
-            const char *buffer,
-            size_t buffer_size,
-            size_t &bytes_sent,
-            const struct sockaddr *dest_addr = nullptr,
-            socklen_t addrlen = 0,
-            int flags                = 0,
-            time_point_t complete_by = time_point_t::max()) noexcept
+              int fd,
+              const char *buffer,
+              size_t buffer_size,
+              size_t &bytes_sent,
+              const struct sockaddr *dest_addr = nullptr,
+              socklen_t addrlen                = 0,
+              int flags                        = 0,
+              time_point_t complete_by         = time_point_t::max()) noexcept
     : io_desc_awaitable{loop, fd, io_desc_type::write, complete_by},
       buffer_{buffer},
       buffer_size_{buffer_size},
@@ -503,15 +498,17 @@ struct io_sendto : public io_desc_awaitable
 
     void execute() noexcept
     {
-        while(bytes_sent_ < buffer_size_)
+        while (bytes_sent_ < buffer_size_)
         {
             // Perform the actual sendto
             ssize_t ret;
-            
-            if (dest_addr_ != nullptr) {
-                ret = ::sendto(waiter_.fd(), buffer_ + bytes_sent_, buffer_size_ - bytes_sent_, 
-                               flags_, dest_addr_, addrlen_);
-            } else {
+
+            if (dest_addr_ != nullptr)
+            {
+                ret = ::sendto(waiter_.fd(), buffer_ + bytes_sent_, buffer_size_ - bytes_sent_, flags_, dest_addr_, addrlen_);
+            }
+            else
+            {
                 // If no dest_addr is provided, use send instead (equivalent behavior)
                 ret = ::send(waiter_.fd(), buffer_ + bytes_sent_, buffer_size_ - bytes_sent_, flags_);
             }
@@ -570,10 +567,7 @@ struct io_sendmsg : public io_desc_awaitable
         bytes_sent_ = 0;
 
         // Calculate the full size of the message
-        for (size_t i = 0; i < msg_->msg_iovlen; ++i)
-        {
-            full_size_ += msg_->msg_iov[i].iov_len;
-        }
+        for (size_t i = 0; i < msg_->msg_iovlen; ++i) { full_size_ += msg_->msg_iov[i].iov_len; }
     }
 
     bool check_ready() noexcept override
@@ -587,10 +581,10 @@ struct io_sendmsg : public io_desc_awaitable
         if (msg_control_ != nullptr && !first_call_)
         {
             // Restore the original control message data if we stored it
-            msg_->msg_control = msg_control_;
+            msg_->msg_control    = msg_control_;
             msg_->msg_controllen = msg_control_len_;
-            
-            msg_control_ = nullptr;
+
+            msg_control_     = nullptr;
             msg_control_len_ = 0;
         }
     }
@@ -602,10 +596,10 @@ struct io_sendmsg : public io_desc_awaitable
             // For the first call, save the control message data
             if (first_call_ && msg_->msg_control != nullptr)
             {
-                msg_control_ = msg_->msg_control;
+                msg_control_     = msg_->msg_control;
                 msg_control_len_ = msg_->msg_controllen;
-                first_call_ = false;
-                
+                first_call_      = false;
+
                 LOG(trace) << "Stored control message data: " << msg_control_ << ", len: " << msg_control_len_;
             }
 
@@ -631,9 +625,9 @@ struct io_sendmsg : public io_desc_awaitable
             {
                 // Update total bytes sent
                 bytes_sent_ += ret;
-                
+
                 LOG(trace) << "bytes_sent_ = " << bytes_sent_ << " full_size_ = " << full_size_;
-                
+
                 if (bytes_sent_ == full_size_)
                 {
                     LOG(trace) << "Sent all " << bytes_sent_ << " bytes via sendmsg";
@@ -644,7 +638,7 @@ struct io_sendmsg : public io_desc_awaitable
                 // Control data is only sent on the first sendmsg call
                 if (!first_call_ && msg_->msg_control != nullptr)
                 {
-                    msg_->msg_control = nullptr;
+                    msg_->msg_control    = nullptr;
                     msg_->msg_controllen = 0;
                 }
 

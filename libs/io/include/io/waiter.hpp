@@ -43,9 +43,6 @@ struct io_waiter
 {
     // callback used when io_waiter is used without a promise/awaitable
     using io_callback_t = void(*)(io_result, io_waiter *);
-
-    // callback that can be used with io_awaitable::done(), io_awaitable::error(), etc.
-    using awaitable_callback_t = std::function<void()>;
     
     // Pre-reserve space for common case
     static constexpr size_t DEFAULT_WAITERS_CAPACITY = 32;
