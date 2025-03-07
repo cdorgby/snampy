@@ -41,13 +41,17 @@ namespace detail {
 
 struct io_waiter
 {
-    using callback_t = void(*)(io_result, io_waiter *);
+    // callback used when io_waiter is used without a promise/awaitable
+    using io_callback_t = void(*)(io_result, io_waiter *);
+
+    // callback that can be used with io_awaitable::done(), io_awaitable::error(), etc.
+    using awaitable_callback_t = std::function<void()>;
     
     // Pre-reserve space for common case
     static constexpr size_t DEFAULT_WAITERS_CAPACITY = 32;
 
     io_waiter() = delete;
-    io_waiter(io_loop &loop, callback_t callback, struct io_awaitable *promise, time_point_t complete_by = time_point_t::max()) noexcept
+    io_waiter(io_loop &loop, io_callback_t callback, struct io_awaitable *promise, time_point_t complete_by = time_point_t::max()) noexcept
     : complete_by_{complete_by},
       callback_{callback},
       awaitable_{promise},
@@ -56,7 +60,7 @@ struct io_waiter
         waiters_.reserve(DEFAULT_WAITERS_CAPACITY);
     }
 
-    io_waiter(io_loop &loop, io_waiter *waiter, callback_t callback, struct io_awaitable *promise, time_point_t complete_by = time_point_t::max()) noexcept
+    io_waiter(io_loop &loop, io_waiter *waiter, io_callback_t callback, struct io_awaitable *promise, time_point_t complete_by = time_point_t::max()) noexcept
     : awaiting_waiter_{waiter},
       complete_by_{complete_by},
       callback_{callback},
@@ -102,7 +106,7 @@ struct io_waiter
     /**
      * @brief The callback to be called when the operation is completed.
      */
-    callback_t callback_{nullptr};
+    io_callback_t callback_{nullptr};
     /**
      * @brief A pointer to the promise associated with this waiter.
      */
@@ -126,9 +130,6 @@ struct io_waiter
      */
     [[nodiscard]] bool complete(io_result result) noexcept;
     
-    /**
-     * @brief Thread-safe method to get current result
-     */
     [[nodiscard]] io_result result() const noexcept { return result_; }
     [[nodiscard]] bool scheduled() const noexcept { return scheduled_; }
     [[nodiscard]] io_loop &loop() const noexcept { return loop_; }

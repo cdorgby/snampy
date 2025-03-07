@@ -1,12 +1,21 @@
 #pragma once
 
+/**
+ * @file io.hpp
+ *
+ * @brief Main include file for the I/O & Coroutine library
+ *
+ *
+ * The coroutines library provides a set of classes and functions to perform blocking I/O operations asynchronously
+ * using using the C++20 coroutines feature.
+ *
+ */
 #include <io/common.hpp>
 #include <io/io_loop.hpp>
 #include <io/waiter.hpp>
-#include <io/promise.hpp>
+#include <io/awaitable.hpp>
 #include <io/iotask.hpp>
 #include <io/iobuf.hpp>
-#include <io/ioops.hpp>
 #include <io/mbox.hpp>
 
 #include <io/impl/iobuf.hpp>
